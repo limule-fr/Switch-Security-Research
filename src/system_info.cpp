@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
 #include "switchscan/system_info.hpp"
 
 namespace switchscan {

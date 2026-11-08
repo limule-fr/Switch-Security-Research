@@ -51,12 +51,12 @@ Sources : [README](https://github.com/e-m-b-a/emba/blob/76d26381b9bfcb6f8d235f28
 | Ressource | Licence vérifiée | Recommandation SSR |
 |---|---|---|
 | [libnx](https://github.com/switchbrew/libnx/tree/b156b4774fb2df7b93402169509266da7547fc4c) | ISC, selon les métadonnées du dépôt ; le dépôt contient `LICENSE.md` | Dépendance pertinente pour le NRO devkitPro. Utiliser les API documentées et leurs retours d’erreur ; conserver les avis de licence selon les modalités applicables. |
-| [Hekate/BDK](https://github.com/CTCaer/hekate/tree/45cd81ed08e30a26ba380958c7e20b55c342834b) | GPL-2.0 au niveau du dépôt et des sources BDK examinées | Référence technique pertinente pour le pré-démarrage, mais toute intégration directe doit être validée juridiquement et techniquement. Ne pas importer tout BDK par défaut ; établir une liste d’API de lecture et relire chaque chemin d’appel. |
+| [Hekate/BDK](https://github.com/CTCaer/hekate/tree/45cd81ed08e30a26ba380958c7e20b55c342834b) | GPL-2.0 au niveau du dépôt et des sources BDK examinées | Référence technique pertinente pour le pré-démarrage. SSR est désormais GPL-2.0-or-later, ce qui permet en principe une combinaison sous GPLv2 avec les portions GPL-2.0-only, sous réserve de vérifier chaque fichier et ses composants tiers. Ne pas importer tout BDK par défaut ; établir une liste d’API de lecture et relire chaque chemin d’appel. |
 | FuseCheck | GPL-2.0 | Ne pas copier le payload complet ; la base et certains composants doivent être évalués séparément avant reprise. |
 | SwitchBlade | Aucune licence déclarée dans le snapshot | Pas de réutilisation de code sans autorisation explicite. |
 | EMBA | GPL-3.0 | Ne pas intégrer ni porter dans les collecteurs. |
 
-Le dépôt SSR examiné ne contient pas de fichier `LICENSE` à sa racine. Sa propre licence et la compatibilité des licences doivent être décidées avant toute publication ou incorporation de dépendances. Les composants vendus comme « inclus » dans BDK/FuseCheck peuvent porter des licences distinctes : vérifier les avis et versions exacts plutôt que déduire leur licence de celle du dépôt parent.
+SSR est distribué sous GPL-2.0-or-later, comme indiqué dans le [README](../README.md) et le fichier [`LICENSE`](../LICENSE). Les sources Hekate/BDK examinées portent GPL-2.0; certains fichiers ou composants intégrés peuvent avoir des licences distinctes. Une combinaison avec une portion GPL-2.0-only doit satisfaire les conditions GPLv2 pour l’œuvre combinée; elle ne rend pas les composants tiers soumis à la licence SSR et ne permet pas de relicencier leurs fichiers sous « or later ». Vérifier les avis et versions exacts avant toute redistribution.
 
 ## Sources primaires SSR examinées
 

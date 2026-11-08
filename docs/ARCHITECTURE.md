@@ -162,7 +162,7 @@ Un adaptateur BIN séparé est nécessaire : le code actuel s’appuie sur des f
 1. **Valider le périmètre et les licences BIN** : choisir source BDK ou réécriture minimale, modèles/SoC pris en charge, données matérielles autorisées.
 2. **Valider sur Switch le collecteur NRO** : comportement `set:sys`, permission/montage SD, dossier de sortie, fermeture/renommage et récupération des rapports.
 3. **Compléter les contrôles NRO seulement si autorisés** : réviser les chemins d’inventaire et les références SHA-256 ; tester sur matériel accès refusé, fichiers absents/modifiés et SD pleine.
-4. **Étude de faisabilité BIN** (hors implémentation de cette phase) : vérifier le démarrage cible, l’accès SD/RTC, les API BDK nécessaires, les lectures matérielles retenues et les exigences GPL ; faire approuver avant tout prototype séparé.
+4. **Étude de faisabilité BIN** (hors implémentation de cette phase) : vérifier le démarrage cible, l’accès SD/RTC, les API BDK nécessaires, les lectures matérielles retenues et les licences fichier par fichier ; faire approuver avant tout prototype séparé.
 5. **Implémenter ultérieurement le BIN minimal** : système/SoC non privé, capacités effectivement accessibles, rapport JSON seulement, aucune routine d’écriture/clé.
 6. **Valider les deux outils sur matériel autorisé** : versions et modèles déclarés, horloges invalides, SD retirée/pleine, service refusé, données firmware inconnues, JSON récupérable via lecteur de carte ; documenter ce qui n’a pas pu être testé.
 
@@ -170,10 +170,10 @@ Les tests du cœur portable sur PC sont permis comme tests unitaires locaux, mai
 
 ## 8. Décisions à valider avant implémentation
 
-1. **Licence BIN :** accepter l’intégration de code BDK soumis à GPL-2.0 (et l’examen des composants embarqués), ou imposer une implémentation indépendante limitée à des interfaces documentées.
+1. **Licence BIN :** évaluer chaque fichier BDK et composant tiers avant intégration. La licence du dépôt SSR est GPL-2.0-or-later ; elle peut être compatible avec les fichiers GPL-2.0-only sous les conditions GPLv2, mais ne rend pas les composants tiers soumis à la licence SSR.
 2. **Cible matérielle de phase 1 :** quels modèles/révisions Switch 1, quelle chaîne pré-démarrage et quel chargeur/version sont disponibles pour des tests reproductibles ?
 3. **Périmètre fichiers NRO :** confirmer le répertoire SD d’entrée autorisé et si les références SHA-256 sont fournies par SSR, par l’utilisateur ou par une source signée.
 4. **Données BIN :** confirmer si le rapport peut inclure le nombre agrégé de fusibles et les versions lues dans SYSTEM ; dans tous les cas, exclure les valeurs brutes de fusibles, les clés et les identifiants.
 5. **Temps et identifiant :** décider du comportement acceptable si RTC ou source d’entropie ne sont pas fiables ; le collecteur ne doit ni prétendre une UTC exacte ni écraser un rapport existant.
-6. **Licence SSR :** choisir une licence du dépôt avant toute redistribution de code ou dépendances.
+6. **Licence SSR :** le projet est sous GPL-2.0-or-later. Toute redistribution combinant SSR et composants GPL-2.0-only doit respecter les termes GPLv2 applicables à l’œuvre combinée ; l’option « or later » de SSR ne remplace pas les avis ni licences propres aux composants.
 7. **Récupération :** confirmer que la carte SD/lecteur de carte est le mécanisme de base et que USB reste optionnel, sans promesse de support jusqu’à implémentation.

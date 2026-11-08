@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
 CXX ?= g++
 BUILD_DIR := build
 CPPFLAGS := -Iinclude

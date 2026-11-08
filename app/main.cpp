@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
 #include "switchscan/inventory.hpp"
 #include "switchscan/platform.hpp"
 #include "switchscan/report.hpp"
