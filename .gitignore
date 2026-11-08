@@ -1,0 +1,12 @@
+# Secrets
+.env
+.env.*
+
+# Autoriser le modèle de configuration
+!.env.example
+
+# Compilation
+build/
+*.o
+*.elf
+*.nro
