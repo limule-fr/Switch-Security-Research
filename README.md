@@ -115,3 +115,10 @@ If SD mounting or report writing fails, the program reports the error and does
 not claim that a report was saved. Actual firmware/service availability depends
 on the homebrew launch context; the configured target 23.0.1 is not assumed to
 be the runtime version.
+
+## License
+
+Switch Security Research is distributed under the
+GNU General Public License v3.0 or later (GPL-3.0-or-later).
+
+See [LICENSE](LICENSE) for details.
