@@ -24,6 +24,25 @@
 
 namespace {
 
+#ifdef SWITCHSCAN_HORIZON
+void show_diagnostic(PrintConsole* console, const char* message) {
+    std::printf("%s\n", message);
+    consoleUpdate(console);
+}
+
+void wait_for_diagnostic_button(PrintConsole* console, PadState& pad) {
+    std::printf("\nPress any controller button to exit.\n");
+    consoleUpdate(console);
+    while (appletMainLoop()) {
+        padUpdate(&pad);
+        if (padGetButtonsDown(&pad) != 0) {
+            break;
+        }
+        consoleUpdate(console);
+    }
+}
+#endif
+
 struct Options {
     std::string root = "scan-input";
     std::string references = "scan-references.sha256";
@@ -103,6 +122,15 @@ bool ensure_parent_directory(const std::string& file_path) {
 } // namespace
 
 int main(int argc, char* argv[]) {
+#ifdef SWITCHSCAN_HORIZON
+    PrintConsole* diagnostic_console = consoleInit(nullptr);
+    padConfigureInput(1, HidNpadStyleSet_NpadStandard);
+    PadState diagnostic_pad{};
+    padInitializeDefault(&diagnostic_pad);
+    show_diagnostic(diagnostic_console,
+                    "[SSR TEMPORARY DIAGNOSTIC] main() reached");
+    show_diagnostic(diagnostic_console, "Initialization");
+#endif
     switchscan::Logger logger(std::cerr);
     Options options;
 
@@ -112,13 +140,40 @@ int main(int argc, char* argv[]) {
     options.root = "sdmc:/switch/SwitchSecurityResearch/input/";
     options.references =
         "sdmc:/switch/SwitchSecurityResearch/references.sha256";
-    const Result sd_result = fsdevMountSdmc();
-    const bool sd_mounted = R_SUCCEEDED(sd_result);
-    if (!sd_mounted) {
+    show_diagnostic(diagnostic_console, "Checking SD device...");
+    FsFileSystem* sd_filesystem = fsdevGetDeviceFileSystem("sdmc");
+    Result sd_mount_result = 0;
+    if (sd_filesystem != nullptr) {
+        show_diagnostic(diagnostic_console,
+                        "SD device is already mounted; reusing it.");
+    } else {
+        show_diagnostic(diagnostic_console,
+                        "SD device is not mounted; attempting fallback mount...");
+        sd_mount_result = fsdevMountSdmc();
+        std::printf("fsdevMountSdmc result: %u (0x%08X)\n",
+                    static_cast<unsigned int>(sd_mount_result),
+                    static_cast<unsigned int>(sd_mount_result));
+        consoleUpdate(diagnostic_console);
+        sd_filesystem = fsdevGetDeviceFileSystem("sdmc");
+    }
+    if (sd_filesystem == nullptr) {
+        const Result sd_last_result = fsdevGetLastResult();
+        std::printf("SD device unavailable after mount check.\n"
+                    "Mount result: %u (0x%08X)\n"
+                    "Last fsdev result: %u (0x%08X)\n",
+                    static_cast<unsigned int>(sd_mount_result),
+                    static_cast<unsigned int>(sd_mount_result),
+                    static_cast<unsigned int>(sd_last_result),
+                    static_cast<unsigned int>(sd_last_result));
+        consoleUpdate(diagnostic_console);
         logger.log(switchscan::LogLevel::error,
                    "SD card is not accessible; no report was saved.");
+        show_diagnostic(diagnostic_console,
+                        "SD device is unavailable; no report was saved.");
+        wait_for_diagnostic_button(diagnostic_console, diagnostic_pad);
         return 1;
     }
+    show_diagnostic(diagnostic_console, "SD device is available.");
 #else
     if (!parse_options(argc, argv, options)) {
         return argc > 1 && std::string(argv[1]) == "--help" ? 0 : 2;
@@ -128,11 +183,19 @@ int main(int argc, char* argv[]) {
     try {
         switchscan::SystemInfo system;
         switchscan::InventoryReport inventory;
+#ifdef SWITCHSCAN_HORIZON
+        show_diagnostic(diagnostic_console, "Loading reference manifest...");
+#endif
         const switchscan::LoadedReferences references =
             switchscan::load_reference_manifest(options.references);
         if (!references.loaded) {
             logger.log(switchscan::LogLevel::warning, references.error);
         }
+#ifdef SWITCHSCAN_HORIZON
+        show_diagnostic(diagnostic_console,
+                        references.loaded ? "Manifest loaded."
+                                          : "Manifest unavailable; continuing.");
+#endif
 
         std::unique_ptr<switchscan::SystemInfoProvider> provider =
             switchscan::make_system_info_provider();
@@ -154,6 +217,9 @@ int main(int argc, char* argv[]) {
 #else
         const switchscan::ScanPlatform scan_platform =
             switchscan::ScanPlatform::pc_test;
+#endif
+#ifdef SWITCHSCAN_HORIZON
+        show_diagnostic(diagnostic_console, "Collection started.");
 #endif
         const switchscan::ModuleRunReport module_report =
             module_registry.run_all(scan_platform, logger);
@@ -199,17 +265,25 @@ int main(int argc, char* argv[]) {
             }
         }
         switchscan::ReportExporter::finalize_id(report);
+#ifdef SWITCHSCAN_HORIZON
+        show_diagnostic(diagnostic_console, "Collection finished.");
+#endif
 
 #ifdef SWITCHSCAN_HORIZON
         const std::string output_path =
             "sdmc:/rapports_SSR/report-" + report.report_id + ".json";
+        show_diagnostic(diagnostic_console,
+                        "Creating report directory...");
         if (!make_directory_chain("sdmc:/rapports_SSR")) {
             throw std::runtime_error(
                 "Cannot create or verify sdmc:/rapports_SSR");
         }
+        show_diagnostic(diagnostic_console, "Writing JSON report...");
         switchscan::ReportExporter::write_json(output_path, report);
         logger.log(switchscan::LogLevel::info,
                    "JSON report saved to " + output_path);
+        std::printf("Report created:\n%s\n", output_path.c_str());
+        wait_for_diagnostic_button(diagnostic_console, diagnostic_pad);
 #else
         if (!ensure_parent_directory(options.output)) {
             throw std::runtime_error("Cannot create output directory");
@@ -222,6 +296,8 @@ int main(int argc, char* argv[]) {
         logger.log(switchscan::LogLevel::error,
                    std::string("Fatal collection error: ") + error.what());
 #ifdef SWITCHSCAN_HORIZON
+        std::printf("FATAL ERROR:\n%s\n", error.what());
+        wait_for_diagnostic_button(diagnostic_console, diagnostic_pad);
         if (fsdevUnmountDevice("sdmc") != 0) {
             logger.log(switchscan::LogLevel::warning,
                        "Failed to unmount sdmc after collection failure");
