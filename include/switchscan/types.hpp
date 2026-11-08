@@ -22,6 +22,7 @@ enum class ScanStatus {
 };
 
 struct ScanResult {
+    std::string module_id;
     std::string control_id;
     std::string analysis_name;
     std::string description;

@@ -2,6 +2,7 @@
 #pragma once
 
 #include "switchscan/inventory.hpp"
+#include "switchscan/research_module.hpp"
 #include "switchscan/system_info.hpp"
 #include "switchscan/types.hpp"
 
@@ -22,6 +23,7 @@ struct ScanReport {
     std::string collector_version = "development";
     SystemInfo system;
     InventoryReport inventory;
+    std::vector<ResearchModuleRecord> modules;
     std::vector<ScanResult> checks;
     std::vector<ReportError> errors;
 };

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 #include "switchscan/json_exporter.hpp"
 #include "switchscan/inventory.hpp"
+#include "switchscan/research_module.hpp"
 #include "switchscan/report.hpp"
 #include "switchscan/scan_engine.hpp"
 #include "switchscan/sha256.hpp"
@@ -14,6 +15,7 @@
 #include <stdexcept>
 #include <string>
 #include <sys/stat.h>
+#include <utility>
 #include <unistd.h>
 
 namespace {
@@ -61,6 +63,58 @@ public:
 private:
     switchscan::CheckMetadata metadata_;
 };
+
+class FakeResearchModule final : public switchscan::ResearchModule {
+public:
+    FakeResearchModule(switchscan::ResearchModuleMetadata metadata,
+                       std::vector<switchscan::ResearchControlMetadata> controls,
+                       switchscan::CheckOutcome outcome, int& executions,
+                       bool throws = false)
+        : metadata_(std::move(metadata)), controls_(std::move(controls)),
+          outcome_(std::move(outcome)), executions_(executions),
+          throws_(throws) {}
+
+    const switchscan::ResearchModuleMetadata& metadata() const noexcept override {
+        return metadata_;
+    }
+
+    const std::vector<switchscan::ResearchControlMetadata>& controls()
+        const noexcept override {
+        return controls_;
+    }
+
+    switchscan::CheckOutcome run_control(
+        const switchscan::ResearchControlMetadata&,
+        switchscan::ScanPlatform) override {
+        ++executions_;
+        if (throws_) {
+            throw std::runtime_error("module execution failure");
+        }
+        return outcome_;
+    }
+
+private:
+    switchscan::ResearchModuleMetadata metadata_;
+    std::vector<switchscan::ResearchControlMetadata> controls_;
+    switchscan::CheckOutcome outcome_;
+    int& executions_;
+    bool throws_;
+};
+
+std::unique_ptr<switchscan::ResearchModule> make_fake_module(
+    const std::string& module_id, const std::string& control_id,
+    switchscan::ScanPlatform platform, switchscan::CheckOutcome outcome,
+    int& executions, bool implemented = true, bool throws = false) {
+    switchscan::ResearchModuleMetadata metadata{
+        module_id, "Test module", "1.0.0", {platform}, {}};
+    switchscan::ResearchControlMetadata control{
+        {control_id, "Test control", "Test description",
+         switchscan::Severity::medium},
+        {platform}, implemented};
+    return std::unique_ptr<switchscan::ResearchModule>(new FakeResearchModule(
+        std::move(metadata), {std::move(control)}, std::move(outcome),
+        executions, throws));
+}
 
 } // namespace
 
@@ -124,6 +178,124 @@ int main() {
             duplicate_rejected = true;
         }
         require(duplicate_rejected, "Duplicate control IDs must be rejected");
+
+        switchscan::ModuleRegistry default_modules;
+        for (auto& module : switchscan::make_default_research_modules()) {
+            default_modules.add_module(std::move(module));
+        }
+        const switchscan::ModuleRunReport horizon_modules =
+            default_modules.run_all(switchscan::ScanPlatform::horizon, logger);
+        require(horizon_modules.modules.size() == 4 &&
+                    horizon_modules.modules[0].metadata.id == "usb-research" &&
+                    horizon_modules.modules[1].metadata.id == "ipc-research" &&
+                    horizon_modules.modules[2].metadata.id == "memory-research" &&
+                    horizon_modules.modules[3].metadata.id ==
+                        "known-vulnerabilities",
+                "Default modules must be registered with stable identifiers");
+        require(horizon_modules.checks.size() == 12 &&
+                    horizon_modules.errors.empty(),
+                "Declared controls must yield results without runtime errors");
+        for (const switchscan::ScanResult& result : horizon_modules.checks) {
+            require(result.status == switchscan::ScanStatus::inconclusive &&
+                        result.evidence.find("not implemented") !=
+                            std::string::npos &&
+                        !result.module_id.empty(),
+                    "Unimplemented controls must be clearly inconclusive");
+        }
+        require(horizon_modules.modules[3]
+                        .metadata.vulnerability_references.empty(),
+                "No CVE references may be implied when no records are loaded");
+
+        const switchscan::ModuleRunReport pc_modules =
+            default_modules.run_all(switchscan::ScanPlatform::pc_test, logger);
+        require(pc_modules.checks.size() == 12 &&
+                    pc_modules.checks[0].status ==
+                        switchscan::ScanStatus::not_accessible &&
+                    pc_modules.checks.back().status ==
+                        switchscan::ScanStatus::inconclusive,
+                "Controls incompatible with PC_TEST must not be executed");
+
+        int module_executions = 0;
+        switchscan::ModuleRegistry compatible_registry;
+        compatible_registry.add_module(make_fake_module(
+            "test.module", "test.module.control",
+            switchscan::ScanPlatform::horizon,
+            {switchscan::ScanStatus::ok, "Synthetic read-only observation",
+             false},
+            module_executions));
+        const switchscan::ModuleRunReport incompatible =
+            compatible_registry.run_all(switchscan::ScanPlatform::pc_test,
+                                        logger);
+        require(module_executions == 0 && incompatible.checks.size() == 1 &&
+                    incompatible.checks[0].status ==
+                        switchscan::ScanStatus::not_accessible,
+                "Platform-incompatible controls must not invoke module code");
+        const switchscan::ModuleRunReport compatible =
+            compatible_registry.run_all(switchscan::ScanPlatform::horizon,
+                                        logger);
+        require(module_executions == 1 && compatible.checks.size() == 1 &&
+                    compatible.checks[0].status == switchscan::ScanStatus::ok,
+                "Compatible implemented controls must return observations");
+
+        switchscan::ModuleRegistry unproven_registry;
+        int unproven_executions = 0;
+        unproven_registry.add_module(make_fake_module(
+            "test.unproven-module", "test.unproven-control",
+            switchscan::ScanPlatform::pc_test,
+            {switchscan::ScanStatus::vulnerable, "", false},
+            unproven_executions));
+        const switchscan::ModuleRunReport unproven =
+            unproven_registry.run_all(switchscan::ScanPlatform::pc_test,
+                                      logger);
+        require(unproven.checks.size() == 1 &&
+                    unproven.checks[0].status == switchscan::ScanStatus::suspect,
+                "VULNERABLE without sufficient evidence must be downgraded");
+
+        switchscan::ModuleRegistry error_registry;
+        int failed_executions = 0;
+        error_registry.add_module(make_fake_module(
+            "test.error-module", "test.error-control",
+            switchscan::ScanPlatform::pc_test,
+            {switchscan::ScanStatus::ok, "", false}, failed_executions, true,
+            true));
+        const switchscan::ModuleRunReport failed_module =
+            error_registry.run_all(switchscan::ScanPlatform::pc_test, logger);
+        require(failed_module.checks.empty() &&
+                    failed_module.errors.size() == 1 &&
+                    failed_module.errors[0].module_id == "test.error-module" &&
+                    failed_module.errors[0].control_id == "test.error-control",
+                "Execution errors must be recorded separately from verdicts");
+
+        switchscan::ModuleRegistry duplicate_module_registry;
+        int unused_executions = 0;
+        duplicate_module_registry.add_module(make_fake_module(
+            "test.duplicate-module", "test.first-control",
+            switchscan::ScanPlatform::pc_test, {}, unused_executions));
+        bool duplicate_module_rejected = false;
+        try {
+            duplicate_module_registry.add_module(make_fake_module(
+                "test.duplicate-module", "test.second-control",
+                switchscan::ScanPlatform::pc_test, {}, unused_executions));
+        } catch (const std::invalid_argument&) {
+            duplicate_module_rejected = true;
+        }
+        require(duplicate_module_rejected,
+                "Duplicate module IDs must be rejected");
+
+        switchscan::ModuleRegistry duplicate_research_control_registry;
+        duplicate_research_control_registry.add_module(make_fake_module(
+            "test.first-module", "test.shared-control",
+            switchscan::ScanPlatform::pc_test, {}, unused_executions));
+        bool duplicate_research_control_rejected = false;
+        try {
+            duplicate_research_control_registry.add_module(make_fake_module(
+                "test.second-module", "test.shared-control",
+                switchscan::ScanPlatform::pc_test, {}, unused_executions));
+        } catch (const std::invalid_argument&) {
+            duplicate_research_control_rejected = true;
+        }
+        require(duplicate_research_control_rejected,
+                "Control IDs must be unique across registered modules");
 
         switchscan::Sha256 sha;
         sha.update("a", 1);
@@ -193,6 +365,7 @@ int main() {
         report.system.installed_image_firmware = {
             "", "NOT_ACCESSIBLE", "Not inspected by NRO", "NRO_SCOPE"};
         report.inventory = inventory;
+        report.modules = horizon_modules.modules;
         switchscan::ReportExporter::finalize_id(report);
         switchscan::ScanReport second_report = report;
         switchscan::ReportExporter::finalize_id(second_report);
@@ -201,7 +374,7 @@ int main() {
                 "Report identifiers must be full-length and distinct");
         const std::string report_json =
             switchscan::ReportExporter::to_json(report);
-        require(report_json.find("\"schema_version\": 1") != std::string::npos &&
+        require(report_json.find("\"schema_version\": 2") != std::string::npos &&
                     report_json.find("\"report_id\": \"" + report.report_id +
                                      "\"") != std::string::npos &&
                     report_json.find("\"collected_at_utc\"") !=
@@ -209,6 +382,14 @@ int main() {
                     report_json.find("\"collector_type\": \"NRO\"") !=
                         std::string::npos &&
                     report_json.find("\"collector_version\": \"test\"") !=
+                        std::string::npos &&
+                    report_json.find("\"research_modules\"") !=
+                        std::string::npos &&
+                    report_json.find("\"id\": \"usb-research\"") !=
+                        std::string::npos &&
+                    report_json.find("\"implemented\": false") !=
+                        std::string::npos &&
+                    report_json.find("\"vulnerability_references\": []") !=
                         std::string::npos &&
                     report_json.find("\"running_os\"") != std::string::npos &&
                     report_json.find("\"installed_image\"") !=

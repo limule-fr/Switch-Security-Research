@@ -14,6 +14,7 @@ platform adapter.
 ├── app/main.cpp
 ├── include/switchscan/
 │   ├── check.hpp
+│   ├── research_module.hpp
 │   ├── inventory.hpp
 │   ├── json_exporter.hpp
 │   ├── logger.hpp
@@ -30,6 +31,7 @@ platform adapter.
 │   ├── logger.cpp
 │   ├── platform_horizon.cpp
 │   ├── platform_pc.cpp
+│   ├── research_modules.cpp
 │   ├── qr_code.cpp        # not included in the collector build
 │   ├── report.cpp
 │   ├── scan_engine.cpp
@@ -70,6 +72,13 @@ platform adapter.
 - `VULNERABLE` is retained only when a check supplies explicit sufficient
   evidence. A hash mismatch is reported as `SUSPECT`, never as a confirmed
   vulnerability. Inaccessible resources are not treated as safe or vulnerable.
+- USB, IPC, memory, and known-vulnerability research families are registered
+  as versioned modules. Their current controls are declarations only:
+  compatible controls report `INCONCLUSIVE`, incompatible controls report
+  `NOT_ACCESSIBLE`, and no USB, IPC, memory, or CVE analysis is performed yet.
+  Module execution errors, if any, are recorded separately from verdicts.
+- The report schema is version 2 and adds module/control declarations while
+  retaining the existing collector, system, inventory, and check fields.
 - QR output is not part of report generation. JSON is the required, standalone
   report format.
 

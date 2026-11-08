@@ -10,6 +10,7 @@ CORE_SOURCES := \
 	src/types.cpp \
 	src/logger.cpp \
 	src/scan_engine.cpp \
+	src/research_modules.cpp \
 	src/json_exporter.cpp \
 	src/sha256.cpp \
 	src/inventory.cpp \

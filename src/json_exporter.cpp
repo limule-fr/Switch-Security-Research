@@ -42,7 +42,9 @@ std::string JsonExporter::to_json(const std::vector<ScanResult>& results) {
     for (std::size_t index = 0; index < results.size(); ++index) {
         const ScanResult& result = results[index];
         output << (index == 0 ? "\n" : ",\n") << "    {\n"
-               << "      \"control_id\": ";
+               << "      \"module_id\": ";
+        write_escaped(output, result.module_id);
+        output << ",\n      \"control_id\": ";
         write_escaped(output, result.control_id);
         output << ",\n      \"analysis_name\": ";
         write_escaped(output, result.analysis_name);

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 #include "switchscan/inventory.hpp"
 #include "switchscan/platform.hpp"
+#include "switchscan/research_module.hpp"
 #include "switchscan/report.hpp"
 #include "switchscan/scan_engine.hpp"
 
@@ -143,8 +144,31 @@ int main(int argc, char* argv[]) {
                 options.root, references.hashes, inventory, references.loaded,
                 references.error)));
 
+        switchscan::ModuleRegistry module_registry;
+        for (auto& module : switchscan::make_default_research_modules()) {
+            module_registry.add_module(std::move(module));
+        }
+#ifdef SWITCHSCAN_HORIZON
+        const switchscan::ScanPlatform scan_platform =
+            switchscan::ScanPlatform::horizon;
+#else
+        const switchscan::ScanPlatform scan_platform =
+            switchscan::ScanPlatform::pc_test;
+#endif
+        const switchscan::ModuleRunReport module_report =
+            module_registry.run_all(scan_platform, logger);
+
         switchscan::ScanReport report;
         report.checks = engine.run_all();
+        report.checks.insert(report.checks.end(), module_report.checks.begin(),
+                             module_report.checks.end());
+        report.modules = module_report.modules;
+        for (const switchscan::ModuleExecutionError& error :
+             module_report.errors) {
+            report.errors.push_back(
+                {"module:" + error.module_id + "/" + error.control_id,
+                 error.message});
+        }
         report.system = system;
 #ifdef SWITCHSCAN_HORIZON
         report.collector_type = "NRO";

@@ -67,7 +67,9 @@ void write_observed_value(std::ostream& output, const ObservedValue& value) {
 }
 
 void write_check(std::ostream& output, const ScanResult& check) {
-    output << "{\n      \"control_id\": ";
+    output << "{\n      \"module_id\": ";
+    write_nullable_string(output, check.module_id);
+    output << ",\n      \"control_id\": ";
     write_string(output, check.control_id);
     output << ",\n      \"analysis_name\": ";
     write_string(output, check.analysis_name);
@@ -84,6 +86,67 @@ void write_check(std::ostream& output, const ScanResult& check) {
            << ",\n      \"timestamp_utc\": ";
     write_nullable_string(output, check.timestamp_utc);
     output << "\n    }";
+}
+
+void write_platforms(std::ostream& output,
+                     const std::vector<ScanPlatform>& platforms) {
+    output << '[';
+    for (std::size_t i = 0; i < platforms.size(); ++i) {
+        output << (i == 0 ? "" : ", ");
+        write_string(output, to_string(platforms[i]));
+    }
+    output << ']';
+}
+
+void write_module(std::ostream& output, const ResearchModuleRecord& module) {
+    output << "{\n      \"id\": ";
+    write_string(output, module.metadata.id);
+    output << ",\n      \"name\": ";
+    write_string(output, module.metadata.name);
+    output << ",\n      \"version\": ";
+    write_string(output, module.metadata.version);
+    output << ",\n      \"platforms\": ";
+    write_platforms(output, module.metadata.platforms);
+    output << ",\n      \"controls\": [";
+    for (std::size_t i = 0; i < module.controls.size(); ++i) {
+        const ResearchControlMetadata& control = module.controls[i];
+        output << (i == 0 ? "\n        {" : ",\n        {")
+               << "\"id\": ";
+        write_string(output, control.check.id);
+        output << ", \"name\": ";
+        write_string(output, control.check.name);
+        output << ", \"description\": ";
+        write_string(output, control.check.description);
+        output << ", \"severity\": ";
+        write_string(output, to_string(control.check.severity));
+        output << ", \"platforms\": ";
+        write_platforms(output, control.platforms);
+        output << ", \"implemented\": "
+               << (control.implemented ? "true" : "false") << '}';
+    }
+    if (!module.controls.empty()) {
+        output << '\n' << "      ";
+    }
+    output << "],\n      \"vulnerability_references\": [";
+    for (std::size_t i = 0;
+         i < module.metadata.vulnerability_references.size(); ++i) {
+        const VulnerabilityReference& reference =
+            module.metadata.vulnerability_references[i];
+        output << (i == 0 ? "\n        {" : ",\n        {")
+               << "\"id\": ";
+        write_string(output, reference.id);
+        output << ", \"source\": ";
+        write_string(output, reference.source);
+        output << ", \"affected_versions\": ";
+        write_string(output, reference.affected_versions);
+        output << ", \"fixed_versions\": ";
+        write_string(output, reference.fixed_versions);
+        output << '}';
+    }
+    if (!module.metadata.vulnerability_references.empty()) {
+        output << '\n' << "      ";
+    }
+    output << "]\n    }";
 }
 
 std::string error_message(const char* operation, const std::string& path,
@@ -162,7 +225,7 @@ void ReportExporter::finalize_id(ScanReport& report) {
 
 std::string ReportExporter::to_json(const ScanReport& report) {
     std::ostringstream output;
-    output << "{\n  \"schema_version\": 1,\n  \"report_id\": ";
+    output << "{\n  \"schema_version\": 2,\n  \"report_id\": ";
     write_nullable_string(output, report.report_id);
     output << ",\n  \"collected_at_utc\": ";
     write_nullable_string(output, report.collected_at_utc);
@@ -224,7 +287,15 @@ std::string ReportExporter::to_json(const ScanReport& report) {
     if (!report.inventory.resources.empty()) {
         output << '\n';
     }
-    output << "    ]\n  },\n  \"checks\": [";
+    output << "    ]\n  },\n  \"research_modules\": [";
+    for (std::size_t i = 0; i < report.modules.size(); ++i) {
+        output << (i == 0 ? "\n    " : ",\n    ");
+        write_module(output, report.modules[i]);
+    }
+    if (!report.modules.empty()) {
+        output << '\n';
+    }
+    output << "  ],\n  \"checks\": [";
     for (std::size_t i = 0; i < report.checks.size(); ++i) {
         output << (i == 0 ? "\n    " : ",\n    ");
         write_check(output, report.checks[i]);
