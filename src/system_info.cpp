@@ -3,6 +3,37 @@
 
 namespace switchscan {
 
+const char* to_string(RuntimeEnvironmentStatus status) noexcept {
+    switch (status) {
+    case RuntimeEnvironmentStatus::stock_confirmed:
+        return "STOCK_CONFIRMED";
+    case RuntimeEnvironmentStatus::cfw_detected: return "CFW_DETECTED";
+    case RuntimeEnvironmentStatus::modified_or_unknown:
+        return "MODIFIED_OR_UNKNOWN";
+    }
+    return "MODIFIED_OR_UNKNOWN";
+}
+
+const char* to_string(DetectionConfidence confidence) noexcept {
+    switch (confidence) {
+    case DetectionConfidence::high: return "HIGH";
+    case DetectionConfidence::limited: return "LIMITED";
+    case DetectionConfidence::unknown: return "UNKNOWN";
+    }
+    return "UNKNOWN";
+}
+
+const char* to_string(ComponentProvenance provenance) noexcept {
+    switch (provenance) {
+    case ComponentProvenance::nintendo: return "NINTENDO";
+    case ComponentProvenance::atmosphere: return "ATMOSPHERE";
+    case ComponentProvenance::homebrew: return "HOMEBREW";
+    case ComponentProvenance::third_party: return "THIRD_PARTY";
+    case ComponentProvenance::unknown: return "UNKNOWN";
+    }
+    return "UNKNOWN";
+}
+
 SystemInfoCheck::SystemInfoCheck(SystemInfoProvider& provider, SystemInfo& output)
     : provider_(provider), output_(output),
       metadata_{"collector.system-info", "System information",

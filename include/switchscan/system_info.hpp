@@ -8,6 +8,42 @@
 
 namespace switchscan {
 
+enum class RuntimeEnvironmentStatus {
+    stock_confirmed,
+    cfw_detected,
+    modified_or_unknown
+};
+
+const char* to_string(RuntimeEnvironmentStatus status) noexcept;
+
+enum class DetectionConfidence {
+    high,
+    limited,
+    unknown
+};
+
+const char* to_string(DetectionConfidence confidence) noexcept;
+
+struct RuntimeEnvironmentInfo {
+    RuntimeEnvironmentStatus status =
+        RuntimeEnvironmentStatus::modified_or_unknown;
+    DetectionConfidence confidence = DetectionConfidence::unknown;
+    std::string source;
+    std::string detail;
+    std::string limitations;
+    std::vector<std::string> evidence_ids;
+};
+
+enum class ComponentProvenance {
+    nintendo,
+    atmosphere,
+    homebrew,
+    third_party,
+    unknown
+};
+
+const char* to_string(ComponentProvenance provenance) noexcept;
+
 struct ObservedValue {
     std::string value;
     std::string status = "NOT_ACCESSIBLE";
@@ -19,10 +55,12 @@ struct ComponentInfo {
     std::string name;
     std::string status;
     std::string detail;
+    ComponentProvenance provenance = ComponentProvenance::unknown;
 };
 
 struct SystemInfo {
     std::string platform;
+    RuntimeEnvironmentInfo runtime_environment;
     ObservedValue firmware;
     ObservedValue installed_image_firmware;
     ObservedValue model;

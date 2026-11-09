@@ -28,7 +28,7 @@ Le projet contient déjà un cœur C++17 et un NRO :
 - [Makefile](../Makefile) : cibles `pc`, `test` et `switch`; la cible Switch utilise devkitA64/libnx ;
 - [app/main.cpp](../app/main.cpp) : collecte, assemblage du rapport et écriture ;
 - [src/platform_horizon.cpp](../src/platform_horizon.cpp) : requêtes `set:sys` de version et de modèle ;
-- [src/inventory.cpp](../src/inventory.cpp) : inventaire borné, lecture de fichiers et SHA-256 ;
+- [src/inventory.cpp](../src/inventory.cpp) : inventaire borné, lecture en flux, SHA-256 et validation structurelle NRO limitée ;
 - [src/report.cpp](../src/report.cpp) : export JSON autonome et écriture protégée contre l’écrasement ;
 - [src/scan_engine.cpp](../src/scan_engine.cpp) : orchestration des contrôles et garde sur les statuts `VULNERABLE`.
 
@@ -42,7 +42,7 @@ Le dépôt contient aussi [src/platform_pc.cpp](../src/platform_pc.cpp), une int
 | Deux collecteurs indépendants NRO et BIN | Seul l’adaptateur NRO est présent ; aucune cible BIN n’est établie. |
 | Type de collecteur dans le rapport | Le JSON déclare `collector_type` (`NRO` dans la version Horizon, `PC_TEST` dans l’adaptateur de développement). |
 | Liste de contrôles, preuves, erreurs et ressources non accessibles | Le rapport contient ces sections ; les contrôles ne déclarent pas de pourcentage de confiance non méthodologiquement défini. |
-| NRO borné aux ressources autorisées | L’inventaire est restreint à `sdmc:/switch/SwitchSecurityResearch/input/` et possède des limites. |
+| NRO borné aux ressources autorisées | L’inventaire est restreint à `sdmc:/switch/SwitchSecurityResearch/input/`, distingue dossier absent/vide, et possède des limites. |
 | QR facultatif ultérieur | La génération automatique de QR a été retirée du chemin de rapport ; le JSON est le seul format généré. |
 | Rapport autonome et identifiant unique | Le rapport a un schéma JSON versionné et un identifiant SHA-256 complet. Le NRO écrit/ferme un temporaire puis vérifie que la destination est absente avant le renommage ; le test PC réserve la destination avec `O_EXCL` avant de publier, car le renommage POSIX de l’hôte remplace une destination existante. Le refus d’un fichier déjà présent est testé sur PC ; la sémantique Horizon en cas de création concurrente entre le contrôle et le renommage reste à confirmer sur console ou par une garantie explicite de l’API cible. |
 
@@ -57,7 +57,9 @@ Le homebrew s’exécute après le lancement d’Horizon et n’obtient pas une 
 - **Version firmware et modèle :** appeler explicitement les API `set:sys` libnx (`setsysGetFirmwareVersion`, `setsysGetProductModel`) et enregistrer le résultat, sa source et tout échec. La requête du service ne garantit pas sa disponibilité dans tous les modes de lancement.
 - **Services :** aucune énumération générale n’est supposée. SSR doit déclarer une liste de services/API spécifiques à interroger, puis noter chaque succès ou refus/échec. Une absence de réponse ne signifie pas que le service n’existe pas.
 - **Fichiers :** uniquement des chemins autorisés et explicitement configurés, sous un répertoire de carte SD défini. Pas de parcours implicite de NAND, partitions système, données d’autres titres, sauvegardes privées ou fichiers hors périmètre. La visibilité d’un fichier n’est pas garantie.
-- **Intégrité :** SHA-256 peut établir le condensat des octets lus. Un résultat n’est comparé qu’à une référence versionnée et d’origine vérifiable. Un hash seul ne dit pas qu’un fichier est sain ; une différence mène au plus à `SUSPECT` tant que la référence n’est pas assez fiable pour conclure.
+- **Intégrité :** SHA-256 établit le condensat des octets lus. Une comparaison dépend du manifeste local fourni par l’utilisateur ; le format actuel ne prouve ni son origine ni sa version. Un hash seul ne dit pas qu’un fichier est sain ; une différence mène au plus à `SUSPECT`.
+- **Analyse de format :** le collecteur reconnaît uniquement la structure fixe d’un NRO et vérifie les bornes déclarées de ses segments. Il ne charge pas le NRO, n’analyse pas son code et n’évalue pas les autres formats. Les anomalies structurelles sont des observations, pas des vulnérabilités.
+- **Environnement :** `hosversionIsAtmosphere()` peut signaler positivement Atmosphère. Son absence ne prouve pas un Horizon stock et ne détecte pas nécessairement d’autres modifications. Aucune API libnx vérifiée ne fournit la révision matérielle.
 - **Anomalies :** uniquement des règles déterministes sur des éléments effectivement collectés (par exemple, écart à une référence approuvée ou fichier modifié pendant la lecture). Pas d’inférence de vulnérabilité à partir d’une absence d’accès ou d’une simple différence de hash.
 
 ### BIN — pré-démarrage

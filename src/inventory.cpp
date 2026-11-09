@@ -18,9 +18,13 @@ namespace switchscan {
 namespace {
 
 constexpr std::size_t kMaxEntries = 1000;
+constexpr std::size_t kMaxManifestEntries = 1000;
+constexpr std::uint64_t kMaxManifestBytes = 1024 * 1024;
 constexpr unsigned int kMaxDepth = 8;
 constexpr std::uint64_t kMaxFileBytes = 64ULL * 1024 * 1024;
 constexpr std::size_t kReadBufferBytes = 32 * 1024;
+constexpr std::size_t kNroHeaderBytes = 0x80;
+constexpr std::size_t kNroMagicOffset = 0x10;
 
 bool valid_digest(const std::string& value) {
     return value.size() == 64 &&
@@ -54,6 +58,87 @@ std::string error_text(const char* operation, const std::string& path) {
     return message.str();
 }
 
+std::uint32_t read_u32_le(const std::vector<unsigned char>& bytes,
+                          std::size_t offset) {
+    return static_cast<std::uint32_t>(bytes[offset]) |
+           (static_cast<std::uint32_t>(bytes[offset + 1]) << 8) |
+           (static_cast<std::uint32_t>(bytes[offset + 2]) << 16) |
+           (static_cast<std::uint32_t>(bytes[offset + 3]) << 24);
+}
+
+bool has_nro_extension(const std::string& path) {
+    if (path.size() < 4) {
+        return false;
+    }
+    const std::size_t offset = path.size() - 4;
+    return std::tolower(static_cast<unsigned char>(path[offset])) == '.' &&
+           std::tolower(static_cast<unsigned char>(path[offset + 1])) == 'n' &&
+           std::tolower(static_cast<unsigned char>(path[offset + 2])) == 'r' &&
+           std::tolower(static_cast<unsigned char>(path[offset + 3])) == 'o';
+}
+
+void inspect_static_format(const std::vector<unsigned char>& prefix,
+                           std::uint64_t actual_size,
+                           const std::string& relative_path,
+                           ResourceRecord& record) {
+    const bool nro_magic =
+        prefix.size() >= kNroMagicOffset + 4 &&
+        prefix[kNroMagicOffset] == 'N' &&
+        prefix[kNroMagicOffset + 1] == 'R' &&
+        prefix[kNroMagicOffset + 2] == 'O' &&
+        prefix[kNroMagicOffset + 3] == '0';
+    if (!nro_magic) {
+        if (has_nro_extension(relative_path)) {
+            record.format = FileFormat::nro;
+            record.static_analysis_status = StaticAnalysisStatus::anomaly;
+            record.static_analysis_detail =
+                "The .nro extension is present but the NRO0 signature is "
+                "missing.";
+        } else {
+            record.static_analysis_status = StaticAnalysisStatus::inconclusive;
+            record.static_analysis_detail =
+                "No supported file signature was recognized; no static "
+                "format checks were applied.";
+        }
+        return;
+    }
+
+    record.format = FileFormat::nro;
+    if (prefix.size() < kNroHeaderBytes) {
+        record.static_analysis_status = StaticAnalysisStatus::anomaly;
+        record.static_analysis_detail =
+            "The NRO signature is present but its fixed header is truncated.";
+        return;
+    }
+
+    const std::uint64_t declared_size = read_u32_le(prefix, 0x18);
+    if (declared_size < kNroHeaderBytes || declared_size > actual_size) {
+        record.static_analysis_status = StaticAnalysisStatus::anomaly;
+        record.static_analysis_detail =
+            "The NRO declared size is outside the actual file bounds.";
+        return;
+    }
+
+    for (std::size_t segment = 0; segment < 3; ++segment) {
+        const std::size_t offset = 0x20 + segment * 8;
+        const std::uint64_t file_offset = read_u32_le(prefix, offset);
+        const std::uint64_t size = read_u32_le(prefix, offset + 4);
+        if (size != 0 &&
+            (file_offset < kNroHeaderBytes || file_offset > declared_size ||
+             size > declared_size - file_offset)) {
+            record.static_analysis_status = StaticAnalysisStatus::anomaly;
+            record.static_analysis_detail =
+                "An NRO segment range is outside the declared file bounds.";
+            return;
+        }
+    }
+
+    record.static_analysis_status = StaticAnalysisStatus::structurally_valid;
+    record.static_analysis_detail =
+        "NRO signature, fixed header, declared size, and segment bounds are "
+        "structurally consistent; this is not a security verdict.";
+}
+
 ResourceRecord analyze_file(const std::string& full_path,
                             const std::string& relative_path,
                             const ReferenceMap& references) {
@@ -67,13 +152,18 @@ ResourceRecord analyze_file(const std::string& full_path,
     }
     if (!S_ISREG(before.st_mode)) {
         record.detail = "Resource is not a regular file";
+        record.static_analysis_status = StaticAnalysisStatus::not_accessible;
+        record.static_analysis_detail = record.detail;
         return record;
     }
+    record.size = before.st_size < 0
+                      ? 0
+                      : static_cast<std::uint64_t>(before.st_size);
+    record.modified_time_utc_seconds =
+        static_cast<std::int64_t>(before.st_mtime);
     if (before.st_size < 0 ||
         static_cast<std::uint64_t>(before.st_size) > kMaxFileBytes) {
         record.state = ResourceState::skipped;
-        record.size = before.st_size < 0 ? 0 :
-                      static_cast<std::uint64_t>(before.st_size);
         record.detail = "File exceeds the 64 MiB analysis limit";
         return record;
     }
@@ -81,6 +171,8 @@ ResourceRecord analyze_file(const std::string& full_path,
     const int fd = open(full_path.c_str(), O_RDONLY);
     if (fd < 0) {
         record.detail = error_text("Cannot open for reading", full_path);
+        record.static_analysis_status = StaticAnalysisStatus::not_accessible;
+        record.static_analysis_detail = record.detail;
         return record;
     }
 
@@ -88,12 +180,16 @@ ResourceRecord analyze_file(const std::string& full_path,
     if (fstat(fd, &opened) != 0 || !S_ISREG(opened.st_mode) ||
         opened.st_dev != before.st_dev || opened.st_ino != before.st_ino) {
         record.detail = "File identity changed or is not a regular file";
+        record.static_analysis_status = StaticAnalysisStatus::inconclusive;
+        record.static_analysis_detail = record.detail;
         close(fd);
         return record;
     }
 
     Sha256 hash;
     unsigned char buffer[kReadBufferBytes];
+    std::vector<unsigned char> prefix;
+    prefix.reserve(kNroHeaderBytes);
     bool read_ok = true;
     std::uint64_t total_read = 0;
     for (;;) {
@@ -109,10 +205,16 @@ ResourceRecord analyze_file(const std::string& full_path,
             read_ok = false;
             break;
         }
+        const std::size_t prefix_count =
+            std::min<std::size_t>(static_cast<std::size_t>(count),
+                                  kNroHeaderBytes - prefix.size());
+        prefix.insert(prefix.end(), buffer, buffer + prefix_count);
         total_read += static_cast<std::uint64_t>(count);
         if (total_read > kMaxFileBytes) {
             record.state = ResourceState::skipped;
             record.detail = "File grew beyond the 64 MiB analysis limit";
+            record.static_analysis_status = StaticAnalysisStatus::not_run;
+            record.static_analysis_detail = record.detail;
             close(fd);
             return record;
         }
@@ -134,17 +236,24 @@ ResourceRecord analyze_file(const std::string& full_path,
     close(fd);
 
     if (!read_ok) {
+        record.static_analysis_status = StaticAnalysisStatus::not_accessible;
+        record.static_analysis_detail = record.detail;
         return record;
     }
     if (!stable) {
         record.state = ResourceState::inconclusive;
         record.detail = "File changed while it was being analyzed";
+        record.static_analysis_status = StaticAnalysisStatus::inconclusive;
+        record.static_analysis_detail = record.detail;
         return record;
     }
 
     record.state = ResourceState::analyzed;
     record.size = static_cast<std::uint64_t>(after.st_size);
+    record.modified_time_utc_seconds =
+        static_cast<std::int64_t>(after.st_mtime);
     record.sha256 = Sha256::to_hex(hash.finish());
+    inspect_static_format(prefix, record.size, relative_path, record);
     const auto reference = references.find(relative_path);
     if (reference == references.end()) {
         record.reference = ReferenceState::unknown;
@@ -163,7 +272,7 @@ void walk_directory(const std::string& full_path,
                     const std::string& relative_path,
                     unsigned int depth, const ReferenceMap& references,
                     InventoryReport& report) {
-    if (report.resources.size() >= kMaxEntries) {
+    if (report.entry_count >= kMaxEntries) {
         return;
     }
     struct stat expected_dir {};
@@ -204,10 +313,11 @@ void walk_directory(const std::string& full_path,
             std::string(entry->d_name) == "..") {
             continue;
         }
-        if (report.resources.size() >= kMaxEntries) {
+        if (report.entry_count >= kMaxEntries) {
             break;
         }
         const std::string name(entry->d_name);
+        ++report.entry_count;
         const std::string child_path = join_path(full_path, name);
         const std::string child_relative =
             relative_path.empty() ? name : join_path(relative_path, name);
@@ -255,6 +365,20 @@ void walk_directory(const std::string& full_path,
 
 LoadedReferences load_reference_manifest(const std::string& path) {
     LoadedReferences loaded;
+    struct stat manifest_info {};
+    if (lstat(path.c_str(), &manifest_info) != 0) {
+        loaded.error = "Reference manifest is unavailable: " + path;
+        return loaded;
+    }
+    if (!S_ISREG(manifest_info.st_mode) || manifest_info.st_size < 0 ||
+        static_cast<std::uint64_t>(manifest_info.st_size) >
+            kMaxManifestBytes) {
+        loaded.error =
+            "Reference manifest is not a regular file or exceeds the 1 MiB "
+            "limit: " +
+            path;
+        return loaded;
+    }
     std::ifstream input(path.c_str());
     if (!input) {
         loaded.error = "Reference manifest is unavailable: " + path;
@@ -288,6 +412,11 @@ LoadedReferences load_reference_manifest(const std::string& path) {
             loaded.hashes.clear();
             return loaded;
         }
+        if (loaded.hashes.size() > kMaxManifestEntries) {
+            loaded.error = "Reference manifest exceeds the 1000-entry limit";
+            loaded.hashes.clear();
+            return loaded;
+        }
         std::string extra;
         if (row >> extra) {
             loaded.error = "Unexpected data in reference manifest at line " +
@@ -308,10 +437,12 @@ LoadedReferences load_reference_manifest(const std::string& path) {
 FileInventoryCheck::FileInventoryCheck(std::string root, ReferenceMap references,
                                        InventoryReport& output,
                                        bool references_loaded,
-                                       std::string reference_error)
+                                       std::string reference_error,
+                                       std::string reference_source)
     : root_(std::move(root)), references_(std::move(references)), output_(output),
       references_loaded_(references_loaded),
       reference_error_(std::move(reference_error)),
+      reference_source_(std::move(reference_source)),
       metadata_{"collector.file-inventory", "Scoped file inventory",
                 "Read-only inventory and SHA-256 of regular files under the "
                 "configured root only.",
@@ -325,22 +456,43 @@ CheckOutcome FileInventoryCheck::run() {
     output_ = InventoryReport{};
     output_.root = root_;
     output_.reference_manifest_loaded = references_loaded_;
+    output_.reference_manifest_source = reference_source_;
+    output_.reference_manifest_version.clear();
     output_.reference_manifest_error = reference_error_;
 
     struct stat root_info {};
-    if (lstat(root_.c_str(), &root_info) != 0 ||
-        !S_ISDIR(root_info.st_mode) || S_ISLNK(root_info.st_mode)) {
+    if (lstat(root_.c_str(), &root_info) != 0) {
+        if (errno == ENOENT) {
+            output_.root_status = InventoryRootStatus::absent;
+            output_.resources.push_back(
+                {".", ResourceState::inconclusive, ReferenceState::unknown,
+                 0, {}, "Configured inventory root is absent"});
+        } else {
+            output_.root_status = InventoryRootStatus::not_accessible;
+            output_.resources.push_back(
+                {".", ResourceState::not_accessible, ReferenceState::unknown,
+                 0, {}, error_text("Cannot inspect inventory root", root_)});
+        }
+    } else if (!S_ISDIR(root_info.st_mode) || S_ISLNK(root_info.st_mode)) {
+        output_.root_status = InventoryRootStatus::not_accessible;
         output_.resources.push_back(
             {".", ResourceState::not_accessible, ReferenceState::unknown, 0, {},
-             "Configured inventory root is unavailable or not a directory"});
+             "Configured inventory root is not an ordinary directory"});
     } else {
         walk_directory(root_, "", 0, references_, output_);
+        output_.root_status = output_.entry_count == 0
+                                  ? InventoryRootStatus::present_empty
+                                  : InventoryRootStatus::present_nonempty;
     }
 
     for (const ResourceRecord& resource : output_.resources) {
         switch (resource.state) {
         case ResourceState::analyzed:
             ++output_.analyzed_count;
+            if (resource.static_analysis_status ==
+                StaticAnalysisStatus::anomaly) {
+                ++output_.static_anomaly_count;
+            }
             if (resource.reference == ReferenceState::mismatch) {
                 ++output_.mismatch_count;
             }
@@ -357,7 +509,17 @@ CheckOutcome FileInventoryCheck::run() {
         }
     }
 
-    if (output_.resources.size() >= kMaxEntries) {
+    if (output_.inaccessible_count > 0) {
+        const bool root_unavailable =
+            output_.entry_count == 0 && output_.resources.size() == 1 &&
+            (output_.resources.front().path.empty() ||
+             output_.resources.front().path == ".");
+        output_.root_status =
+            root_unavailable ? InventoryRootStatus::not_accessible
+                             : InventoryRootStatus::partially_accessible;
+    }
+
+    if (output_.entry_count >= kMaxEntries) {
         output_.resources.push_back(
             {"", ResourceState::skipped, ReferenceState::unknown, 0, {},
              "Inventory stopped at the 1000-entry limit"});
@@ -370,6 +532,13 @@ CheckOutcome FileInventoryCheck::run() {
                     " file hash(es) differ from supplied references; this is "
                     "an integrity discrepancy, not proof of a vulnerability.",
                 true};
+    }
+    if (output_.static_anomaly_count > 0) {
+        return {ScanStatus::suspect,
+                std::to_string(output_.static_anomaly_count) +
+                    " recognized file(s) have structural anomalies; this is "
+                    "not evidence of a vulnerability or malicious content.",
+                false};
     }
     if (output_.analyzed_count == 0 || output_.inaccessible_count > 0 ||
         output_.skipped_count > 0 || output_.inconclusive_count > 0 ||
@@ -400,6 +569,38 @@ const char* to_string(ResourceState state) noexcept {
     case ResourceState::inconclusive: return "INCONCLUSIVE";
     }
     return "NOT_ACCESSIBLE";
+}
+
+const char* to_string(InventoryRootStatus status) noexcept {
+    switch (status) {
+    case InventoryRootStatus::not_accessible: return "NOT_ACCESSIBLE";
+    case InventoryRootStatus::absent: return "ABSENT";
+    case InventoryRootStatus::present_empty: return "PRESENT_EMPTY";
+    case InventoryRootStatus::present_nonempty: return "PRESENT_NONEMPTY";
+    case InventoryRootStatus::partially_accessible:
+        return "PARTIALLY_ACCESSIBLE";
+    }
+    return "NOT_ACCESSIBLE";
+}
+
+const char* to_string(FileFormat format) noexcept {
+    switch (format) {
+    case FileFormat::unknown: return "UNKNOWN";
+    case FileFormat::nro: return "NRO";
+    }
+    return "UNKNOWN";
+}
+
+const char* to_string(StaticAnalysisStatus status) noexcept {
+    switch (status) {
+    case StaticAnalysisStatus::not_run: return "NOT_RUN";
+    case StaticAnalysisStatus::structurally_valid:
+        return "STRUCTURALLY_VALID";
+    case StaticAnalysisStatus::anomaly: return "ANOMALY";
+    case StaticAnalysisStatus::inconclusive: return "INCONCLUSIVE";
+    case StaticAnalysisStatus::not_accessible: return "NOT_ACCESSIBLE";
+    }
+    return "INCONCLUSIVE";
 }
 
 const char* to_string(ReferenceState state) noexcept {

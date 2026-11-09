@@ -27,10 +27,41 @@ the completeness of the assessment (`COMPLETE`, `PARTIAL`, `INCONCLUSIVE`, or
 establish that a finding is safe or vulnerable.
 
 `achieved_level`, `potential_level`, and `chain_level` are serialized as
-`LEVEL_0` through `LEVEL_3`, or JSON `null` if unknown or not assigned.
-`potential_level` includes a rationale when present. Level 4 is rejected by
-validation for findings and chains and is never emitted. Missing evidence is
-not converted into negative evidence or level 0.
+`LEVEL_0` through `LEVEL_4`, or JSON `null` if unknown or not assigned.
+`potential_level` includes a rationale when present. Level 4 is emitted only
+when the context and evidence requirements in
+[`EXPLOITATION_LEVELS.md`](EXPLOITATION_LEVELS.md) pass validation. Missing
+evidence is not converted into negative evidence or level 0.
+
+Level-4 context records the initial environment and its evidence IDs, console
+model, hardware revision, exact firmware, prerequisites, execution mode,
+reproduction description, and independent-validation status. Modes distinguish
+`TEMPORARY_LOAD`, `NON_PERSISTENT_BOOT`, and `PERSISTENT_INSTALLATION`. These
+are records of external evidence only; the collector never performs those
+operations.
+
+## Environment and file inventory
+
+`runtime_environment` includes `STOCK_CONFIRMED`, `CFW_DETECTED`, or
+`MODIFIED_OR_UNKNOWN`, qualitative confidence, signal source, detail,
+limitations, and evidence IDs. The Horizon adapter can report `CFW_DETECTED`
+only from a positive `hosversionIsAtmosphere()` result. A negative result is
+`MODIFIED_OR_UNKNOWN`, not stock. Stock confirmation requires linked direct or
+external evidence; it cannot be inferred from absent SD markers. Component
+provenance is one of `NINTENDO`, `ATMOSPHERE`, `HOMEBREW`, `THIRD_PARTY`, or
+`UNKNOWN`; the collector uses `UNKNOWN` where it cannot establish origin.
+
+The inventory adds `root_status` (`ABSENT`, `PRESENT_EMPTY`,
+`PRESENT_NONEMPTY`, `PARTIALLY_ACCESSIBLE`, or `NOT_ACCESSIBLE`) and per-file
+modification time when available. The only static format validator currently
+implemented recognizes NRO and checks its fixed header and segment ranges.
+Other formats are reported as unknown/inconclusive; these checks do not detect
+malware or prove a file safe.
+
+SHA-256 reference manifests remain local, user-supplied inputs. The report
+records the attempted source path. The current manifest format has no
+authenticated provenance or version metadata, so its version serializes as
+`null`; a match or mismatch is not a security verdict.
 
 ## Evidence and chains
 
@@ -51,10 +82,11 @@ or downgrade invalid data silently.
 
 ## Compatibility and scope
 
-Version 3 is a structural extension of version 2. Existing fields remain
-present, but this project has not tested compatibility with external schema-v2
-consumers or implemented a report reader/migration path. Consumers should
-branch on `schema_version`.
+Version 3 is a structural extension of version 2. The environment and
+file-analysis properties described here are additive v3 fields; existing
+fields remain present. This project has not tested compatibility with
+external schema-v2 consumers or implemented a report reader/migration path.
+Consumers should branch on `schema_version`.
 
 This phase integrates and serializes data models only. USB, IPC, memory, and
 known-vulnerability modules remain declarations and do not perform scans.

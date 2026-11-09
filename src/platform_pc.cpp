@@ -9,6 +9,11 @@ public:
     SystemInfo collect() override {
         SystemInfo info;
         info.platform = "PC";
+        info.runtime_environment.detail =
+            "The PC test adapter cannot detect a Horizon runtime environment.";
+        info.runtime_environment.source = "PC_TEST_ADAPTER";
+        info.runtime_environment.limitations =
+            "Synthetic host tests do not establish Switch environment state.";
         info.firmware.detail = "Horizon firmware is not present on PC";
         info.firmware.source = "PC_TEST_ADAPTER";
         info.installed_image_firmware.detail =

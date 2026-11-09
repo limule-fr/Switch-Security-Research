@@ -64,16 +64,30 @@ AI assistance does not replace technical verification. Project capabilities, sec
   as `NOT_ACCESSIBLE`, not represented as a clean scan.
 - The NRO reports only the running OS version returned by `set:sys`. It does
   not inspect the SYSTEM partition or report an installed-image version.
+- Runtime environment reporting uses libnx's documented
+  `hosversionIsAtmosphere()` signal. A positive result reports
+  `CFW_DETECTED`; a negative result remains `MODIFIED_OR_UNKNOWN` and never
+  proves stock Horizon. The API does not identify every CFW or provide a
+  hardware revision. Component provenance defaults to `UNKNOWN` unless an
+  approved source establishes it.
 - The Switch build scans only
   `sdmc:/switch/SwitchSecurityResearch/input/`. It does not enumerate NAND,
   system partitions, other processes, other titles' save data, or files outside
   that directory. Symbolic links are not followed. Each file is read in
   32-KiB chunks, with limits of 64 MiB per file, 1000 entries, and eight
   directory levels.
+- File analysis stays within that directory. It records file size,
+  modification time, SHA-256 and reference status, and performs bounded
+  structural checks only for recognized NRO headers and segment ranges.
+  Unsupported formats remain `INCONCLUSIVE`; structural anomalies are not
+  vulnerability or malware verdicts. Files are never launched or loaded.
 - The reference manifest is optional and read-only at
   `sdmc:/switch/SwitchSecurityResearch/references.sha256`. Each line is
   `<sha256> <relative/path>`. A difference is reported as an integrity
   discrepancy (`SUSPECT`), never by itself as a confirmed vulnerability.
+  The manifest is limited to 1 MiB and 1000 entries. Its current format has no
+  authenticated source/version metadata; reports record its path and leave the
+  version unknown.
   Without a reference, a calculated hash has status `UNKNOWN` rather than
   “clean”.
 - JSON reports are written only under `sdmc:/rapports_SSR/`. The report path is
@@ -100,10 +114,11 @@ AI assistance does not replace technical verification. Project capabilities, sec
   status. See [docs/REPORT_SCHEMA.md](docs/REPORT_SCHEMA.md).
 - These collections serialize and validate data models; they do not make the
   USB, IPC, memory, or known-vulnerability declarations operational and do not
-  assert that a vulnerability has been discovered. Levels 0–3 require evidence
-  consistent with [docs/EXPLOITATION_LEVELS.md](docs/EXPLOITATION_LEVELS.md).
-  Level 4 remains unassignable until its criteria are concretely defined and
-  approved.
+  assert that a vulnerability has been discovered. Level 4 represents CFW
+  execution from a documented stock initial environment and requires the
+  strict evidence contract in
+  [docs/EXPLOITATION_LEVELS.md](docs/EXPLOITATION_LEVELS.md). The collector
+  never attempts that demonstration.
 - QR output is not part of report generation. JSON is the required, standalone
   report format.
 

@@ -205,7 +205,7 @@ int main(int argc, char* argv[]) {
         engine.add_check(std::unique_ptr<switchscan::ScanCheck>(
             new switchscan::FileInventoryCheck(
                 options.root, references.hashes, inventory, references.loaded,
-                references.error)));
+                references.error, options.references)));
 
         switchscan::ModuleRegistry module_registry;
         for (auto& module : switchscan::make_default_research_modules()) {

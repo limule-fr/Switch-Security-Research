@@ -3,6 +3,7 @@
 
 #include "switchscan/sha256.hpp"
 
+#include <algorithm>
 #include <atomic>
 #include <cerrno>
 #include <chrono>
@@ -49,6 +50,27 @@ void write_nullable_string(std::ostream& output, const std::string& value) {
     } else {
         write_string(output, value);
     }
+}
+
+void write_runtime_environment(std::ostream& output,
+                               const RuntimeEnvironmentInfo& environment) {
+    output << "{\"status\": ";
+    write_string(output, to_string(environment.status));
+    output << ", \"confidence\": ";
+    write_string(output, to_string(environment.confidence));
+    output << ", \"source\": ";
+    write_nullable_string(output, environment.source);
+    output << ", \"detail\": ";
+    write_string(output, environment.detail);
+    output << ", \"limitations\": ";
+    write_string(output, environment.limitations);
+    output << ", \"evidence_ids\": [";
+    for (std::size_t i = 0; i < environment.evidence_ids.size(); ++i) {
+        output << (i == 0 ? "" : ", ");
+        write_string(output, environment.evidence_ids[i]);
+    }
+    output << ']';
+    output << '}';
 }
 
 void write_observed_value(std::ostream& output, const ObservedValue& value) {
@@ -179,6 +201,35 @@ void write_level(std::ostream& output,
     }
 }
 
+void write_level4_context(std::ostream& output,
+                          const std::optional<Level4Assessment>& context) {
+    if (!context) {
+        output << "null";
+        return;
+    }
+    output << "{\"initial_environment\": ";
+    write_string(output, to_string(context->initial_environment));
+    output << ", \"console_model\": ";
+    write_string(output, context->console_model);
+    output << ", \"hardware_revision\": ";
+    write_string(output, context->hardware_revision);
+    output << ", \"firmware_version\": ";
+    write_string(output, context->firmware_version);
+    output << ", \"execution_mode\": ";
+    write_string(output, to_string(context->execution_mode));
+    output << ", \"prerequisites\": ";
+    write_string(output, context->prerequisites);
+    output << ", \"reproduction_procedure\": ";
+    write_nullable_string(output, context->reproduction_procedure);
+    output << ", \"independent_validation\": ";
+    write_string(output, to_string(context->independent_validation));
+    output << ", \"independent_validation_detail\": ";
+    write_nullable_string(output, context->independent_validation_detail);
+    output << ", \"initial_environment_evidence_ids\": ";
+    write_string_array(output, context->initial_environment_evidence_ids);
+    output << '}';
+}
+
 void write_exploitation(std::ostream& output,
                         const ExploitationAssessment& assessment) {
     output << "{\"achieved_level\": ";
@@ -193,6 +244,8 @@ void write_exploitation(std::ostream& output,
     write_string_array(output, assessment.unproven_capabilities);
     output << ", \"potential_level_rationale\": ";
     write_nullable_string(output, assessment.potential_level_rationale);
+    output << ", \"level4_context\": ";
+    write_level4_context(output, assessment.level4);
     output << '}';
 }
 
@@ -296,6 +349,26 @@ bool valid_assessment_status(AssessmentStatus status) {
     return false;
 }
 
+bool valid_environment_status(RuntimeEnvironmentStatus status) {
+    switch (status) {
+    case RuntimeEnvironmentStatus::stock_confirmed:
+    case RuntimeEnvironmentStatus::cfw_detected:
+    case RuntimeEnvironmentStatus::modified_or_unknown:
+        return true;
+    }
+    return false;
+}
+
+bool valid_detection_confidence(DetectionConfidence confidence) {
+    switch (confidence) {
+    case DetectionConfidence::high:
+    case DetectionConfidence::limited:
+    case DetectionConfidence::unknown:
+        return true;
+    }
+    return false;
+}
+
 void validate_report_data(const ScanReport& report) {
     std::set<std::string> evidence_ids;
     for (const EvidenceRecord& evidence : report.evidence) {
@@ -323,6 +396,52 @@ void validate_report_data(const ScanReport& report) {
                     "Evidence contains an unknown demonstrated capability.");
             }
         }
+    }
+
+    const RuntimeEnvironmentInfo& environment =
+        report.system.runtime_environment;
+    if (!valid_environment_status(environment.status) ||
+        !valid_detection_confidence(environment.confidence)) {
+        throw std::runtime_error(
+            "Report runtime environment contains an unknown status or "
+            "confidence.");
+    }
+    if (environment.status == RuntimeEnvironmentStatus::stock_confirmed) {
+        if (environment.confidence != DetectionConfidence::high ||
+            environment.source.empty() || environment.detail.empty() ||
+            environment.evidence_ids.empty()) {
+            throw std::runtime_error(
+                "Stock environment confirmation requires high confidence, "
+                "provenance, detail, and linked evidence.");
+        }
+        std::set<std::string> seen_environment_evidence;
+        for (const std::string& id : environment.evidence_ids) {
+            if (id.empty() || !seen_environment_evidence.insert(id).second) {
+                throw std::runtime_error(
+                    "Stock environment evidence IDs must be non-empty and "
+                    "unique.");
+            }
+            const auto record = std::find_if(
+                report.evidence.begin(), report.evidence.end(),
+                [&id](const EvidenceRecord& item) { return item.id == id; });
+            if (record == report.evidence.end() ||
+                (record->kind != EvidenceKind::direct_observation &&
+                 record->kind != EvidenceKind::external_validation)) {
+                throw std::runtime_error(
+                    "Stock environment confirmation references missing or "
+                    "non-direct evidence.");
+            }
+        }
+    } else if (environment.status == RuntimeEnvironmentStatus::cfw_detected) {
+        if (environment.confidence != DetectionConfidence::high ||
+            environment.source.empty() || environment.detail.empty()) {
+            throw std::runtime_error(
+                "A detected CFW environment requires a direct source and "
+                "high-confidence detail.");
+        }
+    } else if (environment.confidence == DetectionConfidence::high) {
+        throw std::runtime_error(
+            "An unknown or modified environment cannot have high confidence.");
     }
 
     std::set<std::string> finding_ids;
@@ -454,6 +573,8 @@ std::string ReportExporter::to_json(const ScanReport& report) {
     write_string(output, report.collector_type);
     output << ",\n  \"collector_version\": ";
     write_string(output, report.collector_version);
+    output << ",\n  \"runtime_environment\": ";
+    write_runtime_environment(output, report.system.runtime_environment);
     output << ",\n  \"firmware\": {\n    \"running_os\": ";
     write_observed_value(output, report.system.firmware);
     output << ",\n    \"installed_image\": ";
@@ -471,6 +592,8 @@ std::string ReportExporter::to_json(const ScanReport& report) {
         write_string(output, component.status);
         output << ", \"source\": ";
         write_string(output, component.name);
+        output << ", \"provenance\": ";
+        write_string(output, to_string(component.provenance));
         output << ", \"detail\": ";
         write_string(output, component.detail);
         output << '}';
@@ -480,9 +603,16 @@ std::string ReportExporter::to_json(const ScanReport& report) {
     }
     output << "    ]\n  },\n  \"inventory\": {\n    \"root\": ";
     write_string(output, report.inventory.root);
-    output << ",\n    \"reference_manifest_loaded\": "
+    output << ",\n    \"root_status\": ";
+    write_string(output, to_string(report.inventory.root_status));
+    output << ",\n    \"entry_count\": " << report.inventory.entry_count
+           << ",\n    \"reference_manifest_loaded\": "
            << (report.inventory.reference_manifest_loaded ? "true" : "false")
-           << ",\n    \"reference_manifest_error\": ";
+           << ",\n    \"reference_manifest_source\": ";
+    write_nullable_string(output, report.inventory.reference_manifest_source);
+    output << ",\n    \"reference_manifest_version\": ";
+    write_nullable_string(output, report.inventory.reference_manifest_version);
+    output << ",\n    \"reference_manifest_error\": ";
     write_nullable_string(output, report.inventory.reference_manifest_error);
     output << ",\n    \"counts\": {\"analyzed\": "
            << report.inventory.analyzed_count << ", \"not_accessible\": "
@@ -490,6 +620,8 @@ std::string ReportExporter::to_json(const ScanReport& report) {
            << report.inventory.skipped_count << ", \"hash_mismatch\": "
            << report.inventory.mismatch_count << ", \"inconclusive\": "
            << report.inventory.inconclusive_count
+           << ", \"static_anomalies\": "
+           << report.inventory.static_anomaly_count
            << "},\n    \"resources\": [";
     for (std::size_t i = 0; i < report.inventory.resources.size(); ++i) {
         const ResourceRecord& resource = report.inventory.resources[i];
@@ -501,6 +633,18 @@ std::string ReportExporter::to_json(const ScanReport& report) {
         write_string(output, to_string(resource.reference));
         output << ", \"size\": " << resource.size << ", \"sha256\": ";
         write_nullable_string(output, resource.sha256);
+        output << ", \"modified_time_utc_seconds\": ";
+        if (resource.modified_time_utc_seconds) {
+            output << *resource.modified_time_utc_seconds;
+        } else {
+            output << "null";
+        }
+        output << ", \"format\": ";
+        write_string(output, to_string(resource.format));
+        output << ", \"static_analysis_status\": ";
+        write_string(output, to_string(resource.static_analysis_status));
+        output << ", \"static_analysis_detail\": ";
+        write_nullable_string(output, resource.static_analysis_detail);
         output << ", \"detail\": ";
         write_string(output, resource.detail);
         output << '}';

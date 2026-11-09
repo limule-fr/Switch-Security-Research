@@ -13,6 +13,25 @@ public:
     SystemInfo collect() override {
         SystemInfo info;
         info.platform = "Nintendo Switch / Horizon";
+        const bool atmosphere_detected = hosversionIsAtmosphere();
+        info.runtime_environment.status =
+            atmosphere_detected
+                ? RuntimeEnvironmentStatus::cfw_detected
+                : RuntimeEnvironmentStatus::modified_or_unknown;
+        info.runtime_environment.confidence =
+            atmosphere_detected ? DetectionConfidence::high
+                                : DetectionConfidence::unknown;
+        info.runtime_environment.source = "libnx:hosversionIsAtmosphere";
+        info.runtime_environment.detail =
+            atmosphere_detected
+                ? "libnx reports that the running Horizon environment is "
+                  "augmented by Atmosphere."
+                : "No affirmative Atmosphere signal was reported; stock "
+                  "Horizon is not confirmed.";
+        info.runtime_environment.limitations =
+            "This signal detects Atmosphere only. A negative result does not "
+            "prove stock state or exclude other modifications/CFW. The API "
+            "does not report hardware revision.";
         info.installed_image_firmware.status = "NOT_ACCESSIBLE";
         info.installed_image_firmware.source = "NRO_SCOPE";
         info.installed_image_firmware.detail =
