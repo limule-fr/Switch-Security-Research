@@ -10,6 +10,7 @@
 #include <cstring>
 #include <fcntl.h>
 #include <iomanip>
+#include <set>
 #include <sstream>
 #include <stdexcept>
 #include <sys/stat.h>
@@ -149,6 +150,225 @@ void write_module(std::ostream& output, const ResearchModuleRecord& module) {
     output << "]\n    }";
 }
 
+void write_string_array(std::ostream& output,
+                        const std::vector<std::string>& values) {
+    output << '[';
+    for (std::size_t i = 0; i < values.size(); ++i) {
+        output << (i == 0 ? "" : ", ");
+        write_string(output, values[i]);
+    }
+    output << ']';
+}
+
+void write_capabilities(std::ostream& output,
+                        const std::vector<DemonstratedCapability>& values) {
+    output << '[';
+    for (std::size_t i = 0; i < values.size(); ++i) {
+        output << (i == 0 ? "" : ", ");
+        write_string(output, to_string(values[i]));
+    }
+    output << ']';
+}
+
+void write_level(std::ostream& output,
+                 const std::optional<ExploitationLevel>& level) {
+    if (level) {
+        write_string(output, to_string(*level));
+    } else {
+        output << "null";
+    }
+}
+
+void write_exploitation(std::ostream& output,
+                        const ExploitationAssessment& assessment) {
+    output << "{\"achieved_level\": ";
+    write_level(output, assessment.achieved_level);
+    output << ", \"potential_level\": ";
+    write_level(output, assessment.potential_level);
+    output << ", \"chain_level\": ";
+    write_level(output, assessment.chain_level);
+    output << ", \"demonstrated_capabilities\": ";
+    write_capabilities(output, assessment.demonstrated_capabilities);
+    output << ", \"unproven_capabilities\": ";
+    write_string_array(output, assessment.unproven_capabilities);
+    output << ", \"potential_level_rationale\": ";
+    write_nullable_string(output, assessment.potential_level_rationale);
+    output << '}';
+}
+
+void write_finding(std::ostream& output, const VulnerabilityFinding& finding) {
+    output << "{\n      \"id\": ";
+    write_string(output, finding.id);
+    output << ",\n      \"title\": ";
+    write_string(output, finding.title);
+    output << ",\n      \"technical_description\": ";
+    write_string(output, finding.technical_description);
+    output << ",\n      \"status\": ";
+    write_string(output, to_string(finding.status));
+    output << ",\n      \"assessment_status\": ";
+    write_string(output, to_string(finding.assessment_status));
+    output << ",\n      \"assessment_detail\": ";
+    write_nullable_string(output, finding.assessment_detail);
+    output << ",\n      \"component\": ";
+    write_string(output, finding.component);
+    output << ",\n      \"affected_versions\": ";
+    write_nullable_string(output, finding.affected_versions);
+    output << ",\n      \"exploitation\": ";
+    write_exploitation(output, finding.exploitation);
+    output << ",\n      \"evidence_ids\": ";
+    write_string_array(output, finding.evidence_ids);
+    output << ",\n      \"reference_ids\": ";
+    write_string_array(output, finding.reference_ids);
+    output << ",\n      \"chain_ids\": ";
+    write_string_array(output, finding.chain_ids);
+    output << ",\n      \"reproducibility\": ";
+    write_nullable_string(output, finding.reproducibility);
+    output << ",\n      \"limitations\": ";
+    write_nullable_string(output, finding.limitations);
+    output << "\n    }";
+}
+
+void write_evidence(std::ostream& output, const EvidenceRecord& evidence) {
+    output << "{\n      \"id\": ";
+    write_string(output, evidence.id);
+    output << ",\n      \"control_id\": ";
+    write_string(output, evidence.control_id);
+    output << ",\n      \"kind\": ";
+    write_string(output, to_string(evidence.kind));
+    output << ",\n      \"source\": ";
+    write_string(output, evidence.source);
+    output << ",\n      \"method\": ";
+    write_string(output, evidence.method);
+    output << ",\n      \"summary\": ";
+    write_string(output, evidence.summary);
+    output << ",\n      \"collected_at_utc\": ";
+    write_nullable_string(output, evidence.collected_at_utc);
+    output << ",\n      \"reproducibility\": ";
+    write_nullable_string(output, evidence.reproducibility);
+    output << ",\n      \"target_context\": ";
+    write_nullable_string(output, evidence.target_context);
+    output << ",\n      \"limitations\": ";
+    write_nullable_string(output, evidence.limitations);
+    output << ",\n      \"demonstrated_capabilities\": ";
+    write_capabilities(output, evidence.demonstrated_capabilities);
+    output << "\n    }";
+}
+
+void write_chain(std::ostream& output, const VulnerabilityChain& chain) {
+    output << "{\n      \"id\": ";
+    write_string(output, chain.id);
+    output << ",\n      \"title\": ";
+    write_string(output, chain.title);
+    output << ",\n      \"status\": ";
+    write_string(output, to_string(chain.status));
+    output << ",\n      \"ordered_finding_ids\": ";
+    write_string_array(output, chain.ordered_finding_ids);
+    output << ",\n      \"dependency_rationales\": ";
+    write_string_array(output, chain.dependency_rationales);
+    output << ",\n      \"exploitation\": ";
+    write_exploitation(output, chain.exploitation);
+    output << ",\n      \"evidence_ids\": ";
+    write_string_array(output, chain.evidence_ids);
+    output << ",\n      \"limitations\": ";
+    write_nullable_string(output, chain.limitations);
+    output << "\n    }";
+}
+
+bool valid_vulnerability_status(VulnerabilityStatus status) {
+    switch (status) {
+    case VulnerabilityStatus::confirmed:
+    case VulnerabilityStatus::suspect:
+    case VulnerabilityStatus::inconclusive:
+    case VulnerabilityStatus::not_accessible:
+        return true;
+    }
+    return false;
+}
+
+bool valid_assessment_status(AssessmentStatus status) {
+    switch (status) {
+    case AssessmentStatus::complete:
+    case AssessmentStatus::partial:
+    case AssessmentStatus::inconclusive:
+    case AssessmentStatus::not_accessible:
+        return true;
+    }
+    return false;
+}
+
+void validate_report_data(const ScanReport& report) {
+    std::set<std::string> evidence_ids;
+    for (const EvidenceRecord& evidence : report.evidence) {
+        if (evidence.id.empty() || !evidence_ids.insert(evidence.id).second) {
+            throw std::runtime_error(
+                "Report evidence IDs must be non-empty and unique.");
+        }
+        if (evidence.control_id.empty() || evidence.source.empty() ||
+            evidence.method.empty() || evidence.summary.empty() ||
+            std::string(to_string(evidence.kind)) == "UNKNOWN") {
+            throw std::runtime_error(
+                "Report evidence must include valid provenance and content.");
+        }
+        if ((evidence.kind == EvidenceKind::direct_observation ||
+             evidence.kind == EvidenceKind::external_validation) &&
+            (evidence.reproducibility.empty() ||
+             evidence.target_context.empty())) {
+            throw std::runtime_error(
+                "Direct evidence requires reproducibility and target context.");
+        }
+        for (const DemonstratedCapability capability :
+             evidence.demonstrated_capabilities) {
+            if (std::string(to_string(capability)) == "UNKNOWN") {
+                throw std::runtime_error(
+                    "Evidence contains an unknown demonstrated capability.");
+            }
+        }
+    }
+
+    std::set<std::string> finding_ids;
+    for (const VulnerabilityFinding& finding : report.vulnerabilities) {
+        if (finding.id.empty() || !finding_ids.insert(finding.id).second) {
+            throw std::runtime_error(
+                "Report vulnerability IDs must be non-empty and unique.");
+        }
+        if (!valid_vulnerability_status(finding.status) ||
+            !valid_assessment_status(finding.assessment_status)) {
+            throw std::runtime_error(
+                "Report vulnerability contains an unknown status.");
+        }
+    }
+
+    std::set<std::string> chain_ids;
+    for (const VulnerabilityChain& chain : report.vulnerability_chains) {
+        if (chain.id.empty() || !chain_ids.insert(chain.id).second) {
+            throw std::runtime_error(
+                "Report vulnerability-chain IDs must be non-empty and unique.");
+        }
+        if (!valid_vulnerability_status(chain.status)) {
+            throw std::runtime_error(
+                "Report vulnerability chain contains an unknown status.");
+        }
+    }
+
+    for (const VulnerabilityChain& chain : report.vulnerability_chains) {
+        const std::vector<FindingValidationIssue> issues =
+            validate_chain(chain, report.vulnerabilities, report.evidence);
+        if (!issues.empty()) {
+            throw std::runtime_error("Invalid vulnerability chain '" +
+                                     chain.id + "': " + issues.front().message);
+        }
+    }
+    for (const VulnerabilityFinding& finding : report.vulnerabilities) {
+        const std::vector<FindingValidationIssue> issues =
+            validate_finding(finding, report.evidence,
+                             report.vulnerability_chains);
+        if (!issues.empty()) {
+            throw std::runtime_error("Invalid vulnerability '" + finding.id +
+                                     "': " + issues.front().message);
+        }
+    }
+}
+
 std::string error_message(const char* operation, const std::string& path,
                           int error) {
     return std::string(operation) + " '" + path + "': " +
@@ -224,8 +444,9 @@ void ReportExporter::finalize_id(ScanReport& report) {
 }
 
 std::string ReportExporter::to_json(const ScanReport& report) {
+    validate_report_data(report);
     std::ostringstream output;
-    output << "{\n  \"schema_version\": 2,\n  \"report_id\": ";
+    output << "{\n  \"schema_version\": 3,\n  \"report_id\": ";
     write_nullable_string(output, report.report_id);
     output << ",\n  \"collected_at_utc\": ";
     write_nullable_string(output, report.collected_at_utc);
@@ -293,6 +514,30 @@ std::string ReportExporter::to_json(const ScanReport& report) {
         write_module(output, report.modules[i]);
     }
     if (!report.modules.empty()) {
+        output << '\n';
+    }
+    output << "  ],\n  \"vulnerabilities\": [";
+    for (std::size_t i = 0; i < report.vulnerabilities.size(); ++i) {
+        output << (i == 0 ? "\n    " : ",\n    ");
+        write_finding(output, report.vulnerabilities[i]);
+    }
+    if (!report.vulnerabilities.empty()) {
+        output << '\n';
+    }
+    output << "  ],\n  \"evidence\": [";
+    for (std::size_t i = 0; i < report.evidence.size(); ++i) {
+        output << (i == 0 ? "\n    " : ",\n    ");
+        write_evidence(output, report.evidence[i]);
+    }
+    if (!report.evidence.empty()) {
+        output << '\n';
+    }
+    output << "  ],\n  \"vulnerability_chains\": [";
+    for (std::size_t i = 0; i < report.vulnerability_chains.size(); ++i) {
+        output << (i == 0 ? "\n    " : ",\n    ");
+        write_chain(output, report.vulnerability_chains[i]);
+    }
+    if (!report.vulnerability_chains.empty()) {
         output << '\n';
     }
     output << "  ],\n  \"checks\": [";

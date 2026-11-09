@@ -88,35 +88,9 @@ BDK/FuseCheck sont des références, pas une dépendance décidée. Avant de cho
 | Rapport JSON | Écriture via `sdmc:` après montage réussi | Écriture via le pilote SD du bootloader, si carte et FS utilisables | Même répertoire physique sur SD ; échec d’écriture visible |
 | USB | Non garanti par libnx ou le lancement courant | Dépend du chargeur et de sa configuration | Récupération primaire par carte SD/lecteur de carte ; ne pas promettre USB non implémenté |
 
-## 5. Contrat de rapport proposé
+## 5. Contrat de rapport
 
-Les collecteurs écrivent séparément leurs rapports mais respectent un schéma versionné commun. Le contrat de données ne doit pas imposer un runtime ou des API communes.
-
-```json
-{
-  "schema_version": 1,
-  "report_id": "identifiant opaque",
-  "collected_at_utc": "2026-11-08T12:34:56Z",
-  "collector_type": "NRO",
-  "collector_version": "development ou version de build",
-  "firmware": {
-    "value": null,
-    "status": "NOT_ACCESSIBLE",
-    "source": "set:sys"
-  },
-  "system": {},
-  "checks": [
-    {
-      "id": "check-id",
-      "status": "INCONCLUSIVE",
-      "evidence": [],
-      "error": null
-    }
-  ],
-  "inaccessible_resources": [],
-  "errors": []
-}
-```
+Les collecteurs écrivent séparément leurs rapports mais respectent un schéma versionné commun. Le contrat de données ne doit pas imposer un runtime ou des API communes. Le collecteur actuel sérialise le schéma version 3 ; ses champs, sa structure JSON et ses règles de validation sont décrits dans [`REPORT_SCHEMA.md`](REPORT_SCHEMA.md).
 
 Le JSON est UTF-8 autonome, lisible, sans référence externe nécessaire pour comprendre le résultat. Chaque valeur observée porte sa provenance et son état. `collected_at_utc` doit être `null` si une heure UTC fiable est indisponible, accompagné d’une erreur ou d’un état explicite ; ne pas fabriquer une date. L’identifiant ne contient aucune donnée console. Sa stratégie doit fonctionner sans garantie d’horloge pré-démarrage et prévenir l’écrasement de rapports existants (nom unique, création exclusive ou renommage vérifié).
 

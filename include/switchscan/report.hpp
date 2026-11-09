@@ -5,6 +5,7 @@
 #include "switchscan/research_module.hpp"
 #include "switchscan/system_info.hpp"
 #include "switchscan/types.hpp"
+#include "switchscan/vulnerability.hpp"
 
 #include <string>
 #include <vector>
@@ -24,6 +25,9 @@ struct ScanReport {
     SystemInfo system;
     InventoryReport inventory;
     std::vector<ResearchModuleRecord> modules;
+    std::vector<VulnerabilityFinding> vulnerabilities;
+    std::vector<EvidenceRecord> evidence;
+    std::vector<VulnerabilityChain> vulnerability_chains;
     std::vector<ScanResult> checks;
     std::vector<ReportError> errors;
 };

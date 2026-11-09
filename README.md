@@ -93,12 +93,17 @@ AI assistance does not replace technical verification. Project capabilities, sec
   compatible controls report `INCONCLUSIVE`, incompatible controls report
   `NOT_ACCESSIBLE`, and no USB, IPC, memory, or CVE analysis is performed yet.
   Module execution errors, if any, are recorded separately from verdicts.
-- The report schema is version 2 and adds module/control declarations while
-  retaining the existing collector, system, inventory, and check fields.
-- The exploitation-level and evidence data contracts are being introduced in
-  stages. They do not mean that any exploitability level or vulnerability has
-  been demonstrated. Level 4 is intentionally unassignable until its
-  capabilities are concretely defined.
+- The report schema is version 3. It retains the collector, system, inventory,
+  module, and check fields, and adds distinct `vulnerabilities`, `evidence`,
+  and `vulnerability_chains` collections. Optional exploitation levels remain
+  `null` when unknown; assessment completeness is separate from vulnerability
+  status. See [docs/REPORT_SCHEMA.md](docs/REPORT_SCHEMA.md).
+- These collections serialize and validate data models; they do not make the
+  USB, IPC, memory, or known-vulnerability declarations operational and do not
+  assert that a vulnerability has been discovered. Levels 0–3 require evidence
+  consistent with [docs/EXPLOITATION_LEVELS.md](docs/EXPLOITATION_LEVELS.md).
+  Level 4 remains unassignable until its criteria are concretely defined and
+  approved.
 - QR output is not part of report generation. JSON is the required, standalone
   report format.
 

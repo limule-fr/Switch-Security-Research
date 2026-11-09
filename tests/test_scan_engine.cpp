@@ -658,7 +658,7 @@ int main() {
                 "Report identifiers must be full-length and distinct");
         const std::string report_json =
             switchscan::ReportExporter::to_json(report);
-        require(report_json.find("\"schema_version\": 2") != std::string::npos &&
+        require(report_json.find("\"schema_version\": 3") != std::string::npos &&
                     report_json.find("\"report_id\": \"" + report.report_id +
                                      "\"") != std::string::npos &&
                     report_json.find("\"collected_at_utc\"") !=
@@ -668,6 +668,12 @@ int main() {
                     report_json.find("\"collector_version\": \"test\"") !=
                         std::string::npos &&
                     report_json.find("\"research_modules\"") !=
+                        std::string::npos &&
+                    report_json.find("\"vulnerabilities\"") !=
+                        std::string::npos &&
+                    report_json.find("\"evidence\"") !=
+                        std::string::npos &&
+                    report_json.find("\"vulnerability_chains\"") !=
                         std::string::npos &&
                     report_json.find("\"id\": \"usb-research\"") !=
                         std::string::npos &&
@@ -690,6 +696,212 @@ int main() {
         require(report_json.find("\"confidence\"") == std::string::npos &&
                     report_json.find("\"qr_payload\"") == std::string::npos,
                 "Report must not include undefined confidence or QR payload");
+
+        switchscan::ScanReport phase2_report = report;
+        const auto make_evidence = [](const std::string& id,
+                                      const std::string& summary) {
+            return switchscan::EvidenceRecord{
+                id,
+                "control.synthetic",
+                switchscan::EvidenceKind::direct_observation,
+                "Synthetic PC_TEST fixture",
+                "Deterministic unit-test observation",
+                summary,
+                "2026-01-01T00:00:00Z",
+                "Repeatable with the test suite",
+                "Synthetic evidence only",
+                "Synthetic PC_TEST context",
+                {}};
+        };
+        phase2_report.evidence = {
+            make_evidence("evidence.a1", "First synthetic observation"),
+            make_evidence("evidence.a2", "Second synthetic observation"),
+            make_evidence("evidence.b1", "Third synthetic observation"),
+            make_evidence("evidence.chain", "Synthetic chain validation")};
+        phase2_report.evidence.back().demonstrated_capabilities = {
+            switchscan::DemonstratedCapability::limited_code_execution};
+
+        switchscan::VulnerabilityFinding confirmed_a;
+        confirmed_a.id = "finding.a";
+        confirmed_a.title = "Synthetic \"confirmed\"\nfinding";
+        confirmed_a.technical_description =
+            "Description with quote: \" and newline\npreserved.";
+        confirmed_a.component = "synthetic component A";
+        confirmed_a.affected_versions = "test-version";
+        confirmed_a.status = switchscan::VulnerabilityStatus::confirmed;
+        confirmed_a.assessment_status = switchscan::AssessmentStatus::complete;
+        confirmed_a.exploitation.achieved_level =
+            switchscan::ExploitationLevel::level0;
+        confirmed_a.exploitation.potential_level =
+            switchscan::ExploitationLevel::level1;
+        confirmed_a.exploitation.potential_level_rationale =
+            "A synthetic, explicitly unproven possibility.";
+        confirmed_a.evidence_ids = {"evidence.a1", "evidence.a2"};
+        confirmed_a.reference_ids = {"reference.synthetic"};
+        confirmed_a.chain_ids = {"chain.synthetic"};
+        confirmed_a.exploitation.chain_level =
+            switchscan::ExploitationLevel::level1;
+
+        switchscan::VulnerabilityFinding confirmed_b;
+        confirmed_b.id = "finding.b";
+        confirmed_b.title = "Second synthetic confirmed finding";
+        confirmed_b.component = "synthetic component B";
+        confirmed_b.status = switchscan::VulnerabilityStatus::confirmed;
+        confirmed_b.assessment_status = switchscan::AssessmentStatus::complete;
+        confirmed_b.exploitation.achieved_level =
+            switchscan::ExploitationLevel::level0;
+        confirmed_b.evidence_ids = {"evidence.b1"};
+        confirmed_b.chain_ids = {"chain.synthetic"};
+        confirmed_b.exploitation.chain_level =
+            switchscan::ExploitationLevel::level1;
+
+        switchscan::VulnerabilityFinding suspect;
+        suspect.id = "finding.suspect";
+        suspect.title = "Synthetic suspected finding";
+        suspect.component = "synthetic component";
+        suspect.status = switchscan::VulnerabilityStatus::suspect;
+        suspect.assessment_status = switchscan::AssessmentStatus::inconclusive;
+        suspect.assessment_detail = "Evidence is insufficient to confirm.";
+
+        switchscan::VulnerabilityFinding inaccessible_finding;
+        inaccessible_finding.id = "finding.inaccessible";
+        inaccessible_finding.title = "Unreachable synthetic control";
+        inaccessible_finding.component = "synthetic component";
+        inaccessible_finding.status =
+            switchscan::VulnerabilityStatus::not_accessible;
+        inaccessible_finding.assessment_status =
+            switchscan::AssessmentStatus::not_accessible;
+        inaccessible_finding.limitations =
+            "The test resource is unavailable.";
+
+        switchscan::VulnerabilityFinding inconclusive;
+        inconclusive.id = "finding.inconclusive";
+        inconclusive.title = "Inconclusive synthetic assessment";
+        inconclusive.component = "synthetic component";
+        inconclusive.status = switchscan::VulnerabilityStatus::inconclusive;
+        inconclusive.assessment_status =
+            switchscan::AssessmentStatus::partial;
+        inconclusive.assessment_detail =
+            "The synthetic assessment did not reach a conclusion.";
+
+        switchscan::VulnerabilityChain chain;
+        chain.id = "chain.synthetic";
+        chain.title = "Synthetic two-finding chain";
+        chain.ordered_finding_ids = {"finding.a", "finding.b"};
+        chain.dependency_rationales = {
+            "The first synthetic finding is a prerequisite for the second."};
+        chain.status = switchscan::VulnerabilityStatus::confirmed;
+        chain.exploitation.achieved_level =
+            switchscan::ExploitationLevel::level1;
+        chain.exploitation.demonstrated_capabilities = {
+            switchscan::DemonstratedCapability::limited_code_execution};
+        chain.evidence_ids = {"evidence.chain"};
+        phase2_report.vulnerabilities = {confirmed_a, confirmed_b, suspect,
+                                         inaccessible_finding, inconclusive};
+        phase2_report.vulnerability_chains = {chain};
+
+        const std::string phase2_json =
+            switchscan::ReportExporter::to_json(phase2_report);
+        require(phase2_json.find("\"status\": \"SUSPECT\"") !=
+                    std::string::npos &&
+                    phase2_json.find("\"status\": \"CONFIRMED\"") !=
+                        std::string::npos &&
+                    phase2_json.find("\"assessment_status\": "
+                                     "\"NOT_ACCESSIBLE\"") !=
+                        std::string::npos &&
+                    phase2_json.find("\"assessment_status\": "
+                                     "\"INCONCLUSIVE\"") !=
+                        std::string::npos &&
+                    phase2_json.find("\"ordered_finding_ids\": "
+                                     "[\"finding.a\", \"finding.b\"]") !=
+                        std::string::npos &&
+                    phase2_json.find("\"evidence_ids\": "
+                                     "[\"evidence.a1\", \"evidence.a2\"]") !=
+                        std::string::npos &&
+                    phase2_json.find("\"reference_ids\": "
+                                     "[\"reference.synthetic\"]") !=
+                        std::string::npos &&
+                    phase2_json.find("\"kind\": "
+                                     "\"DIRECT_OBSERVATION\"") !=
+                        std::string::npos &&
+                    phase2_json.find("\"source\": "
+                                     "\"Synthetic PC_TEST fixture\"") !=
+                        std::string::npos &&
+                    phase2_json.find("\"dependency_rationales\": "
+                                     "[\"The first synthetic finding is a "
+                                     "prerequisite for the second.\"]") !=
+                        std::string::npos &&
+                    phase2_json.find("\"achieved_level\": null") !=
+                        std::string::npos &&
+                    phase2_json.find("\"potential_level\": \"LEVEL_1\"") !=
+                        std::string::npos &&
+                    phase2_json.find("\"technical_description\": "
+                                     "\"Description with quote: \\\" and "
+                                     "newline\\npreserved.\"") !=
+                        std::string::npos,
+                "Schema v3 must preserve findings, evidence links, chains, "
+                "null levels, and escaped text");
+
+        const auto rejects_invalid_report = [](switchscan::ScanReport invalid) {
+            try {
+                (void)switchscan::ReportExporter::to_json(invalid);
+            } catch (const std::runtime_error&) {
+                return true;
+            }
+            return false;
+        };
+        switchscan::ScanReport invalid_chain_report = phase2_report;
+        invalid_chain_report.vulnerability_chains[0]
+            .dependency_rationales.clear();
+        require(rejects_invalid_report(invalid_chain_report),
+                "A chain with a missing dependency rationale must be rejected");
+
+        switchscan::ScanReport invalid_level_report = phase2_report;
+        invalid_level_report.vulnerabilities[0].exploitation.achieved_level =
+            switchscan::ExploitationLevel::level4;
+        require(rejects_invalid_report(invalid_level_report),
+                "Serialization must reject level 4 as achieved");
+        invalid_level_report = phase2_report;
+        invalid_level_report.vulnerabilities[0].exploitation.potential_level =
+            switchscan::ExploitationLevel::level4;
+        require(rejects_invalid_report(invalid_level_report),
+                "Serialization must reject level 4 as potential");
+        invalid_level_report = phase2_report;
+        invalid_level_report.vulnerabilities[0].exploitation.chain_level =
+            switchscan::ExploitationLevel::level4;
+        require(rejects_invalid_report(invalid_level_report),
+                "Serialization must reject level 4 as a finding chain level");
+        invalid_level_report = phase2_report;
+        invalid_level_report.vulnerability_chains[0]
+            .exploitation.achieved_level = switchscan::ExploitationLevel::level4;
+        require(rejects_invalid_report(invalid_level_report),
+                "Serialization must reject level 4 as a chain achieved level");
+        invalid_level_report = phase2_report;
+        invalid_level_report.vulnerability_chains[0]
+            .exploitation.potential_level = switchscan::ExploitationLevel::level4;
+        require(rejects_invalid_report(invalid_level_report),
+                "Serialization must reject level 4 as a chain potential level");
+        invalid_level_report = phase2_report;
+        invalid_level_report.vulnerability_chains[0]
+            .exploitation.chain_level = switchscan::ExploitationLevel::level4;
+        require(rejects_invalid_report(invalid_level_report),
+                "Serialization must reject level 4 as a chain-level field");
+        invalid_level_report = phase2_report;
+        invalid_level_report.vulnerabilities[0].exploitation.achieved_level =
+            static_cast<switchscan::ExploitationLevel>(99);
+        require(rejects_invalid_report(invalid_level_report),
+                "Unknown exploitation levels must not be serialized");
+
+        const char* fixture_path =
+            std::getenv("SWITCHSCAN_REPORT_FIXTURE");
+        if (fixture_path != nullptr && fixture_path[0] != '\0') {
+            std::ofstream fixture(fixture_path, std::ios::binary);
+            require(static_cast<bool>(fixture),
+                    "The optional JSON validation fixture must be writable");
+            fixture << phase2_json;
+            require(static_cast<bool>(fixture),
+                    "The optional JSON validation fixture must be complete");
+        }
 
         const std::string reports_dir = base + "/reports";
         require(mkdir(reports_dir.c_str(), 0700) == 0,
