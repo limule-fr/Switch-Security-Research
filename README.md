@@ -5,6 +5,16 @@ The PC executable is a development/test harness; it is not a firmware
 analyzer. Horizon-only system queries and SD mounting are isolated in the
 platform adapter.
 
+## AI-Assisted Development
+
+Switch Security Resechearch is an AI-assisted project.
+
+AI tools are used to support development tasks, including code generation, debugging, documentation, code review and research assistance.
+
+All AI-generated contributions are reviewed, tested and validated by the project maintainer before being accepted.
+
+AI assistance does not replace technical verification. Project capabilities, security findings and vulnerability assessments must be supported by reproducible evidence.
+
 ## Layout
 
 ```text
@@ -14,6 +24,8 @@ platform adapter.
 ├── app/main.cpp
 ├── include/switchscan/
 │   ├── check.hpp
+│   ├── evidence.hpp
+│   ├── exploitation_levels.hpp
 │   ├── research_module.hpp
 │   ├── inventory.hpp
 │   ├── json_exporter.hpp
@@ -24,8 +36,11 @@ platform adapter.
 │   ├── scan_engine.hpp
 │   ├── sha256.hpp
 │   ├── system_info.hpp
-│   └── types.hpp
+│   ├── types.hpp
+│   └── vulnerability.hpp
 ├── src/
+│   ├── evidence.cpp
+│   ├── exploitation_levels.cpp
 │   ├── inventory.cpp
 │   ├── json_exporter.cpp
 │   ├── logger.cpp
@@ -37,6 +52,7 @@ platform adapter.
 │   ├── scan_engine.cpp
 │   ├── sha256.cpp
 │   ├── system_info.cpp
+│   ├── vulnerability.cpp
 │   └── types.cpp
 └── tests/test_scan_engine.cpp
 ```
@@ -79,6 +95,10 @@ platform adapter.
   Module execution errors, if any, are recorded separately from verdicts.
 - The report schema is version 2 and adds module/control declarations while
   retaining the existing collector, system, inventory, and check fields.
+- The exploitation-level and evidence data contracts are being introduced in
+  stages. They do not mean that any exploitability level or vulnerability has
+  been demonstrated. Level 4 is intentionally unassignable until its
+  capabilities are concretely defined.
 - QR output is not part of report generation. JSON is the required, standalone
   report format.
 

@@ -5,6 +5,7 @@
 #include "switchscan/report.hpp"
 #include "switchscan/scan_engine.hpp"
 #include "switchscan/sha256.hpp"
+#include "switchscan/vulnerability.hpp"
 
 #include <cstdlib>
 #include <fstream>
@@ -120,6 +121,289 @@ std::unique_ptr<switchscan::ResearchModule> make_fake_module(
 
 int main() {
     try {
+        require(std::string(switchscan::to_string(
+                    switchscan::ExploitationLevel::level0)) == "LEVEL_0" &&
+                    std::string(switchscan::to_string(
+                    switchscan::ExploitationLevel::level1)) == "LEVEL_1" &&
+                    std::string(switchscan::to_string(
+                    switchscan::ExploitationLevel::level2)) == "LEVEL_2" &&
+                    std::string(switchscan::to_string(
+                    switchscan::ExploitationLevel::level3)) == "LEVEL_3" &&
+                    std::string(switchscan::to_string(
+                    switchscan::ExploitationLevel::level4)) == "LEVEL_4" &&
+                    switchscan::is_level_assessable(
+                        switchscan::ExploitationLevel::level0) &&
+                    switchscan::is_level_assessable(
+                        switchscan::ExploitationLevel::level1) &&
+                    switchscan::is_level_assessable(
+                        switchscan::ExploitationLevel::level2) &&
+                    switchscan::is_level_assessable(
+                        switchscan::ExploitationLevel::level3) &&
+                    !switchscan::is_level_assessable(
+                        switchscan::ExploitationLevel::level4),
+                "Levels 0-3 must be assessable and level 4 must remain "
+                "unassessable until its criteria are defined");
+
+        switchscan::EvidenceRecord direct_evidence{
+            "evidence.direct-001", "control.safe-test",
+            switchscan::EvidenceKind::direct_observation, "PC_TEST fixture",
+            "Deterministic unit-test fixture", "Synthetic direct observation",
+            "2026-01-01T00:00:00Z", "Repeatable with the test suite",
+            "Synthetic evidence only", "Synthetic PC_TEST fixture", {}};
+        switchscan::VulnerabilityFinding confirmed_finding;
+        confirmed_finding.id = "finding.synthetic";
+        confirmed_finding.title = "Synthetic confirmed finding";
+        confirmed_finding.component = "synthetic component";
+        confirmed_finding.status = switchscan::VulnerabilityStatus::confirmed;
+        confirmed_finding.exploitation.achieved_level =
+            switchscan::ExploitationLevel::level0;
+        confirmed_finding.evidence_ids.push_back(direct_evidence.id);
+        require(switchscan::validate_finding(confirmed_finding,
+                                             {direct_evidence})
+                    .empty(),
+                "A confirmed level-0 finding with linked direct evidence "
+                "must satisfy structural validation");
+
+        switchscan::EvidenceRecord code_execution_evidence = direct_evidence;
+        code_execution_evidence.id = "evidence.code-execution";
+        code_execution_evidence.demonstrated_capabilities = {
+            switchscan::DemonstratedCapability::limited_code_execution};
+        confirmed_finding.exploitation.achieved_level =
+            switchscan::ExploitationLevel::level1;
+        confirmed_finding.exploitation.demonstrated_capabilities = {
+            switchscan::DemonstratedCapability::limited_code_execution};
+        confirmed_finding.evidence_ids = {code_execution_evidence.id};
+        require(switchscan::validate_finding(confirmed_finding,
+                                             {code_execution_evidence})
+                    .empty(),
+                "A higher achieved level requires matching direct capability "
+                "evidence");
+        confirmed_finding.exploitation.achieved_level =
+            switchscan::ExploitationLevel::level2;
+        require(!switchscan::validate_finding(confirmed_finding,
+                                              {code_execution_evidence})
+                     .empty(),
+                "Code-execution evidence alone must not establish user-homebrew "
+                "launch");
+        confirmed_finding.exploitation.demonstrated_capabilities = {
+            switchscan::DemonstratedCapability::user_homebrew_launch};
+        require(!switchscan::validate_finding(confirmed_finding,
+                                              {code_execution_evidence})
+                     .empty(),
+                "A claimed capability must be present in linked direct evidence");
+        confirmed_finding.exploitation.demonstrated_capabilities.clear();
+
+        switchscan::EvidenceRecord user_homebrew_evidence =
+            code_execution_evidence;
+        user_homebrew_evidence.id = "evidence.user-homebrew";
+        user_homebrew_evidence.demonstrated_capabilities = {
+            switchscan::DemonstratedCapability::user_homebrew_launch};
+        confirmed_finding.exploitation.achieved_level =
+            switchscan::ExploitationLevel::level2;
+        confirmed_finding.exploitation.demonstrated_capabilities = {
+            switchscan::DemonstratedCapability::user_homebrew_launch};
+        confirmed_finding.evidence_ids = {user_homebrew_evidence.id};
+        require(switchscan::validate_finding(confirmed_finding,
+                                             {user_homebrew_evidence})
+                    .empty(),
+                "Level 2 requires and accepts direct user-homebrew launch evidence");
+
+        switchscan::EvidenceRecord sysmodule_evidence = code_execution_evidence;
+        sysmodule_evidence.id = "evidence.homebrew-sysmodule";
+        sysmodule_evidence.demonstrated_capabilities = {
+            switchscan::DemonstratedCapability::homebrew_sysmodule_load};
+        confirmed_finding.exploitation.achieved_level =
+            switchscan::ExploitationLevel::level3;
+        confirmed_finding.exploitation.demonstrated_capabilities = {
+            switchscan::DemonstratedCapability::homebrew_sysmodule_load};
+        confirmed_finding.evidence_ids = {sysmodule_evidence.id};
+        require(switchscan::validate_finding(confirmed_finding,
+                                             {sysmodule_evidence})
+                    .empty(),
+                "Level 3 requires and accepts direct sysmodule-load evidence");
+
+        confirmed_finding.exploitation.achieved_level =
+            switchscan::ExploitationLevel::level1;
+        confirmed_finding.exploitation.demonstrated_capabilities = {
+            switchscan::DemonstratedCapability::limited_code_execution};
+        switchscan::EvidenceRecord missing_context_evidence =
+            code_execution_evidence;
+        missing_context_evidence.id = "evidence.missing-context";
+        missing_context_evidence.target_context.clear();
+        confirmed_finding.evidence_ids = {missing_context_evidence.id};
+        require(!switchscan::validate_finding(confirmed_finding,
+                                              {missing_context_evidence})
+                     .empty(),
+                "Direct evidence must identify its target context");
+        confirmed_finding.exploitation.achieved_level =
+            switchscan::ExploitationLevel::level0;
+        confirmed_finding.exploitation.demonstrated_capabilities.clear();
+        confirmed_finding.evidence_ids = {direct_evidence.id};
+
+        switchscan::EvidenceRecord advisory_evidence{
+            "evidence.advisory-001", "control.version-check",
+            switchscan::EvidenceKind::official_reference,
+            "Synthetic official advisory", "Reference lookup",
+            "Synthetic advisory statement", "2026-01-01T00:00:00Z",
+            "Reference can be independently retrieved",
+            "Does not prove target applicability", "", {}};
+        confirmed_finding.evidence_ids = {advisory_evidence.id};
+        const std::vector<switchscan::FindingValidationIssue>
+            reference_only_issues =
+                switchscan::validate_finding(confirmed_finding,
+                                             {advisory_evidence});
+        require(!reference_only_issues.empty() &&
+                    confirmed_finding.status ==
+                        switchscan::VulnerabilityStatus::confirmed,
+                "References alone must fail validation without silently "
+                "rewriting a finding status");
+
+        confirmed_finding.evidence_ids = {code_execution_evidence.id};
+        confirmed_finding.exploitation.demonstrated_capabilities = {
+            switchscan::DemonstratedCapability::limited_code_execution};
+        confirmed_finding.exploitation.potential_level =
+            switchscan::ExploitationLevel::level0;
+        confirmed_finding.exploitation.potential_level_rationale =
+            "Synthetic rationale for validation test";
+        confirmed_finding.exploitation.achieved_level =
+            switchscan::ExploitationLevel::level1;
+        require(!switchscan::validate_finding(confirmed_finding,
+                                              {code_execution_evidence})
+                     .empty(),
+                "Potential level cannot be lower than achieved level");
+        confirmed_finding.exploitation.achieved_level =
+            switchscan::ExploitationLevel::level0;
+        confirmed_finding.exploitation.demonstrated_capabilities.clear();
+        confirmed_finding.evidence_ids = {direct_evidence.id};
+        confirmed_finding.exploitation.potential_level =
+            switchscan::ExploitationLevel::level0;
+        confirmed_finding.exploitation.potential_level_rationale.clear();
+        require(!switchscan::validate_finding(confirmed_finding,
+                                              {direct_evidence})
+                     .empty(),
+                "Potential levels must include their rationale");
+        confirmed_finding.exploitation.potential_level_rationale =
+            "Synthetic rationale for validation test";
+        confirmed_finding.exploitation.chain_level =
+            switchscan::ExploitationLevel::level0;
+        require(!switchscan::validate_finding(confirmed_finding,
+                                              {direct_evidence})
+                     .empty(),
+                "A chain level must reference a documented chain");
+        confirmed_finding.exploitation.chain_level.reset();
+        confirmed_finding.exploitation.achieved_level =
+            switchscan::ExploitationLevel::level0;
+        confirmed_finding.exploitation.potential_level =
+            switchscan::ExploitationLevel::level4;
+        require(!switchscan::validate_finding(confirmed_finding,
+                                              {direct_evidence})
+                     .empty(),
+                "Level 4 cannot be assigned as potential without validated criteria");
+        confirmed_finding.exploitation.potential_level.reset();
+        confirmed_finding.exploitation.achieved_level =
+            switchscan::ExploitationLevel::level4;
+        require(!switchscan::validate_finding(confirmed_finding,
+                                              {direct_evidence})
+                     .empty(),
+                "Level 4 cannot be assigned as achieved without validated criteria");
+        confirmed_finding.exploitation.achieved_level =
+            switchscan::ExploitationLevel::level0;
+        confirmed_finding.exploitation.chain_level =
+            switchscan::ExploitationLevel::level4;
+        require(!switchscan::validate_finding(confirmed_finding,
+                                              {direct_evidence})
+                     .empty(),
+                "Level 4 cannot be assigned to a chain without validated criteria");
+        confirmed_finding.exploitation.chain_level.reset();
+        confirmed_finding.evidence_ids = {"evidence.missing"};
+        require(!switchscan::validate_finding(confirmed_finding,
+                                              {direct_evidence})
+                     .empty(),
+                "Findings must not reference missing evidence records");
+
+        switchscan::VulnerabilityFinding second_chain_finding =
+            confirmed_finding;
+        confirmed_finding.evidence_ids = {direct_evidence.id};
+        confirmed_finding.exploitation.achieved_level =
+            switchscan::ExploitationLevel::level0;
+        confirmed_finding.exploitation.potential_level.reset();
+        confirmed_finding.exploitation.potential_level_rationale.clear();
+        confirmed_finding.id = "finding.synthetic.first";
+        second_chain_finding.id = "finding.synthetic.second";
+        second_chain_finding.evidence_ids = {direct_evidence.id};
+        second_chain_finding.exploitation.achieved_level =
+            switchscan::ExploitationLevel::level0;
+        second_chain_finding.exploitation.potential_level.reset();
+        second_chain_finding.exploitation.potential_level_rationale.clear();
+        switchscan::VulnerabilityChain confirmed_chain;
+        confirmed_chain.id = "chain.synthetic";
+        confirmed_chain.title = "Synthetic validated chain";
+        confirmed_chain.ordered_finding_ids = {
+            confirmed_finding.id, second_chain_finding.id};
+        confirmed_chain.dependency_rationales = {
+            "Synthetic prerequisite relationship"};
+        confirmed_chain.status = switchscan::VulnerabilityStatus::confirmed;
+        confirmed_chain.exploitation.achieved_level =
+            switchscan::ExploitationLevel::level1;
+        confirmed_chain.evidence_ids = {code_execution_evidence.id};
+        require(switchscan::validate_chain(
+                    confirmed_chain,
+                    {confirmed_finding, second_chain_finding},
+                    {direct_evidence, code_execution_evidence})
+                    .empty(),
+                "A chain requires ordered confirmed findings, justified "
+                "dependencies, and separate direct evidence");
+
+        switchscan::VulnerabilityFinding chained_finding = confirmed_finding;
+        chained_finding.exploitation.chain_level =
+            switchscan::ExploitationLevel::level1;
+        chained_finding.chain_ids = {confirmed_chain.id};
+        require(switchscan::validate_finding(
+                    chained_finding,
+                    {direct_evidence, code_execution_evidence},
+                    {confirmed_chain})
+                    .empty(),
+                "A finding's chain level must link to matching validated chain "
+                "evidence");
+        confirmed_chain.dependency_rationales.clear();
+        require(!switchscan::validate_chain(
+                     confirmed_chain,
+                     {confirmed_finding, second_chain_finding},
+                     {direct_evidence, code_execution_evidence})
+                     .empty(),
+                "A chain without documented dependency rationale is invalid");
+
+        require(std::string(switchscan::to_string(
+                    switchscan::VulnerabilityStatus::confirmed)) ==
+                    "CONFIRMED" &&
+                    std::string(switchscan::to_string(
+                    switchscan::VulnerabilityStatus::suspect)) == "SUSPECT" &&
+                    std::string(switchscan::to_string(
+                    switchscan::VulnerabilityStatus::inconclusive)) ==
+                        "INCONCLUSIVE" &&
+                    std::string(switchscan::to_string(
+                    switchscan::VulnerabilityStatus::not_accessible)) ==
+                        "NOT_ACCESSIBLE" &&
+                    std::string(switchscan::to_string(
+                    switchscan::EvidenceKind::external_validation)) ==
+                    "EXTERNAL_VALIDATION",
+                "Finding statuses and evidence provenance must be explicit");
+        switchscan::VulnerabilityFinding non_confirmed_finding;
+        non_confirmed_finding.id = "finding.non-confirmed";
+        non_confirmed_finding.title = "Non-confirmed validation fixture";
+        non_confirmed_finding.component = "synthetic component";
+        for (const switchscan::VulnerabilityStatus status : {
+                 switchscan::VulnerabilityStatus::suspect,
+                 switchscan::VulnerabilityStatus::inconclusive,
+                 switchscan::VulnerabilityStatus::not_accessible}) {
+            non_confirmed_finding.status = status;
+            require(switchscan::validate_finding(non_confirmed_finding, {})
+                        .empty() &&
+                        non_confirmed_finding.status == status,
+                    "Non-confirmed statuses must remain distinct and must not "
+                    "be rewritten by validation");
+        }
+
         std::ostringstream log_output;
         switchscan::Logger logger(log_output);
         switchscan::ScanEngine engine(logger);

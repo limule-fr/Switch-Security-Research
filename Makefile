@@ -8,6 +8,9 @@ VERSION_CPPFLAGS := -DSWITCHSCAN_VERSION='"$(VERSION)"'
 
 CORE_SOURCES := \
 	src/types.cpp \
+	src/exploitation_levels.cpp \
+	src/evidence.cpp \
+	src/vulnerability.cpp \
 	src/logger.cpp \
 	src/scan_engine.cpp \
 	src/research_modules.cpp \
@@ -16,6 +19,7 @@ CORE_SOURCES := \
 	src/inventory.cpp \
 	src/system_info.cpp \
 	src/report.cpp
+HEADERS := $(wildcard include/switchscan/*.hpp)
 APP_SOURCE := app/main.cpp
 TEST_SOURCE := tests/test_scan_engine.cpp
 PC_PLATFORM_SOURCE := src/platform_pc.cpp
@@ -33,10 +37,10 @@ pc: $(PC_BINARY)
 $(BUILD_DIR):
 	mkdir -p $@
 
-$(PC_BINARY): $(CORE_SOURCES) $(PC_PLATFORM_SOURCE) $(APP_SOURCE) | $(BUILD_DIR)
+$(PC_BINARY): $(CORE_SOURCES) $(HEADERS) $(PC_PLATFORM_SOURCE) $(APP_SOURCE) | $(BUILD_DIR)
 	$(CXX) $(CPPFLAGS) $(VERSION_CPPFLAGS) $(CXXFLAGS) $(CORE_SOURCES) $(PC_PLATFORM_SOURCE) $(APP_SOURCE) -o $@
 
-$(TEST_BINARY): $(CORE_SOURCES) $(PC_PLATFORM_SOURCE) $(TEST_SOURCE) | $(BUILD_DIR)
+$(TEST_BINARY): $(CORE_SOURCES) $(HEADERS) $(PC_PLATFORM_SOURCE) $(TEST_SOURCE) | $(BUILD_DIR)
 	$(CXX) $(CPPFLAGS) $(VERSION_CPPFLAGS) $(CXXFLAGS) $(CORE_SOURCES) $(PC_PLATFORM_SOURCE) $(TEST_SOURCE) -o $@
 
 test: $(TEST_BINARY)
